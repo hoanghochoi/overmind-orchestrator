@@ -1,0 +1,62 @@
+{
+  "name": "paseo-plugin-overmind",
+  "version": "0.1.0",
+  "description": "Governed multi-agent orchestration for Paseo with Supervisor, Lead, and Peer roles.",
+  "keywords": ["paseo", "plugin", "agents", "orchestration", "multi-agent", "workflow"],
+  "homepage": "https://github.com/hoanghochoi/overmind-orchestrator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hoanghochoi/overmind-orchestrator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hoanghochoi/overmind-orchestrator/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Overmind Orchestrator contributors",
+  "files": [
+    "client",
+    "server",
+    "shared",
+    "OVERVIEW.md",
+    "NOTICE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "npm-shrinkwrap.json",
+    "paseo-plugin.json",
+    "index.server.ts",
+    "index.client.tsx",
+    "!**/*.test.*",
+    "!**/*.map",
+    "!**/tsconfig.tsbuildinfo"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --incremental false",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/clean-package-dist.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "smol-toml": "^1.6.0"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.13.2",
+    "@getpaseo/plugin": "0.13.2",
+    "@getpaseo/protocol": "0.13.2",
+    "@types/node": "^20.9.0",
+    "@types/react": "^19.2.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^20.0.3",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-native": "^0.86.3",
+    "react-native-web": "^0.21.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.6"
+  }
+}

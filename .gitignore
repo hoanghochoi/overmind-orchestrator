@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+.cache/
+.paseo/
+.overmind/
+pack-dry-run.json
+paseo-plugin-overmind-*.tgz

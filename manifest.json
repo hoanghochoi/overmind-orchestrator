@@ -1,0 +1,32 @@
+{
+  "id": "paseo-plugin-overmind",
+  "name": "Overmind Orchestrator",
+  "version": "0.1.0",
+  "description": "Governed multi-agent orchestration for Paseo with Supervisor, Lead, and Peer roles.",
+  "author": "Overmind Orchestrator contributors",
+  "main": "dist/index.js",
+  "capabilities": [
+    "workspace:provision",
+    "transport:middleware",
+    "agent:overlay",
+    "sensor:stream",
+    "action:register",
+    "skill:filter"
+  ],
+  "supported_drivers": ["codex", "claude", "opencode", "pi", "agy", "generic"],
+  "ui_contributions": {
+    "side_menu": {
+      "id": "overmind-command",
+      "label": "Overmind",
+      "icon": "brain-circuit",
+      "order": 3,
+      "view_component": "OvermindCommandView"
+    }
+  },
+  "default_config": {
+    "mailbox_enabled": true,
+    "semantic_sensor_enabled": true,
+    "similarity_threshold": 0.7,
+    "skill_isolation_enabled": true
+  }
+}

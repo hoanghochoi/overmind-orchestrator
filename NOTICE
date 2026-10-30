@@ -1,0 +1,6 @@
+Overmind Orchestrator is distributed under the Apache License, Version 2.0.
+
+This repository was extracted from the Paseo plugin implementation. Paseo is an
+Apache-2.0 project; its original copyright and third-party notices remain in
+the source history and in the included LICENSE file. Third-party dependencies
+retain their own licenses.
