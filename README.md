@@ -29,7 +29,7 @@ The plugin does not include provider accounts or credentials. Each user configur
 The reviewed registry listing is the recommended distribution channel after publication:
 
 ```bash
-paseo plugin add owner/overmind-orchestrator
+paseo plugin add hoanghochoi/overmind-orchestrator
 ```
 
 Until the registry listing is approved, install the public Git repository directly:
