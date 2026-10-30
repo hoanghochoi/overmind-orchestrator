@@ -2,6 +2,17 @@ import { describe, expect, test, vi } from "vitest";
 import { openSetupForm, type SetupModel } from "../client/setup-model.js";
 import { overmindSettings } from "../shared/settings.js";
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
 function fixture() {
   const values = overmindSettings.schema.parse({
     lead: { provider: "test", model: "model", thinkingOptionId: "" },
@@ -192,7 +203,7 @@ describe("Overmind overview form", () => {
   test("uses Scout catalog without SLP role and ignores stale provider responses", async () => {
     const f = fixture();
     await f.model.load();
-    const slow = Promise.withResolvers<{ models: { id: string; label: string }[] }>();
+    const slow = deferred<{ models: { id: string; label: string }[] }>();
     f.listModels.mockReturnValueOnce(slow.promise);
     f.model.selectProvider("scout", "old");
     f.model.selectProvider("scout", "antigravity");
@@ -253,7 +264,7 @@ describe("Overmind overview form", () => {
   test("rejects stale Ollama discovery after changing endpoint", async () => {
     const f = fixture();
     await f.model.load();
-    const slow = Promise.withResolvers<{ models: string[] }>();
+    const slow = deferred<{ models: string[] }>();
     f.embeddingModels.mockReturnValueOnce(slow.promise);
     const loading = f.model.loadOllamaModels();
     f.model.patchEmbedding({ baseUrl: "http://localhost:11435" });
@@ -278,7 +289,7 @@ describe("Overmind overview form", () => {
   });
   test("does not publish after closing and can reopen for React strict effects", async () => {
     const f = fixture();
-    const read = Promise.withResolvers<Awaited<ReturnType<typeof f.read>>>();
+    const read = deferred<Awaited<ReturnType<typeof f.read>>>();
     f.read.mockReturnValueOnce(read.promise);
     const listener = vi.fn();
     f.model.subscribe(listener);

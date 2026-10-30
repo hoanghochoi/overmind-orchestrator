@@ -9,4 +9,5 @@ coverage/
 .paseo/
 .overmind/
 pack-dry-run.json
+job-log.txt
 paseo-plugin-overmind-*.tgz
