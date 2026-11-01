@@ -69,6 +69,8 @@ npm pack --dry-run --ignore-scripts
 
 The plugin is compiled by Paseo from `index.client.tsx` and `index.server.ts`; host SDK packages are development dependencies for typechecking. Runtime dependencies are listed separately so Paseo can install them for users.
 
+Git installation runs the manifest's locked `npm ci --ignore-scripts` preparation step on the daemon host before Paseo compiles the plugin. This installs the host type packages and pinned runtime dependency tree; npm lifecycle scripts remain disabled.
+
 To test a local directory plugin in a daemon:
 
 ```bash

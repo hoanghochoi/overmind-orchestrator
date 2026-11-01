@@ -2,5 +2,6 @@
   "id": "paseo-plugin-overmind",
   "name": "Overmind Orchestrator",
   "description": "Governed multi-agent orchestration for Paseo with Supervisor, Lead, and Peer roles.",
-  "requirements": { "paseo": ">=0.13.2" }
+  "requirements": { "paseo": ">=0.13.2" },
+  "build": [["npm", "ci", "--ignore-scripts"]]
 }
