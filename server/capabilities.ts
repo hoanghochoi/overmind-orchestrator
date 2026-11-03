@@ -25,6 +25,7 @@ const accessSchema = z.object({
 });
 export const NOTEBOOK_SERVER = "overmind_notebook";
 export const COORDINATION_SERVER = "overmind";
+export const SUPERVISOR_WAKE_SERVER = "overmind_wake";
 export const CAPABILITY_ENV = "OVERMIND_CAPABILITY_ID";
 
 function result(value: unknown) {
@@ -144,6 +145,16 @@ export class CapabilityService {
     await this.save();
   }
 
+  supervisorWakeServer(id: string, agentId: string) {
+    const grant = this.access.grants.find((item) => item.id === id && item.agentId === agentId);
+    if (!grant) throw new Error("OVERMIND_CAPABILITY_DENIED: bound Supervisor grant required");
+    return {
+      type: "http" as const,
+      url: `http://127.0.0.1:${this.access.port}/wake/${grant.id}`,
+      headers: { Authorization: `Bearer ${grant.token}` },
+    };
+  }
+
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (
       this.closed ||
@@ -151,7 +162,7 @@ export class CapabilityService {
       request.headers.origin
     )
       throw new Error("OVERMIND_CAPABILITY_DENIED: invalid endpoint origin");
-    const [, kind, id] = /^\/(overmind|notebook)\/([^/?#]+)$/.exec(request.url ?? "") ?? [];
+    const [, kind, id] = /^\/(overmind|notebook|wake)\/([^/?#]+)$/.exec(request.url ?? "") ?? [];
     const grant = this.access.grants.find(
       (item) => item.id === id && request.headers.authorization === `Bearer ${item.token}`,
     );
@@ -161,7 +172,7 @@ export class CapabilityService {
     const mcp =
       kind === "notebook"
         ? await this.notebookServer(agentId)
-        : await this.coordinationServer(agentId);
+        : await this.coordinationServer(agentId, kind === "wake");
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -181,16 +192,19 @@ export class CapabilityService {
     return { provider: current.agent.provider, agentId: current.agent.id };
   }
 
-  private async coordinationServer(agentId: string): Promise<McpServer> {
+  private async coordinationServer(agentId: string, wakeOnly = false): Promise<McpServer> {
     const role = roleForProvider((await this.activeSeat(agentId)).provider);
     if (role !== "supervisor" && role !== "lead")
       throw new Error("OVERMIND_CAPABILITY_DENIED: Supervisor or Lead required");
+    if (wakeOnly && role !== "supervisor")
+      throw new Error("OVERMIND_CAPABILITY_DENIED: Supervisor wake requires a Supervisor");
+    const names = wakeOnly ? ["create_supervisor_wake" as const] : toolsForRole(role);
     const mcp = new McpServer(
       { name: COORDINATION_SERVER, version: "1" },
       { capabilities: { tools: {} } },
     );
     mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: toolsForRole(role).map((name) => ({
+      tools: names.map((name) => ({
         name,
         description: COORDINATION_TOOLS[name].description,
         inputSchema: {
@@ -201,6 +215,8 @@ export class CapabilityService {
     }));
     mcp.setRequestHandler(CallToolRequestSchema, async (call) => {
       try {
+        if (wakeOnly && call.params.name !== "create_supervisor_wake")
+          throw new Error("OVERMIND_ROLE_DENIED: only create_supervisor_wake is available");
         return result(
           await this.coordinator.call(agentId, call.params.name, call.params.arguments),
         );

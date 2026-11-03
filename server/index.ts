@@ -55,6 +55,7 @@ import {
   COORDINATION_SERVER,
   CapabilityService,
   NOTEBOOK_SERVER,
+  SUPERVISOR_WAKE_SERVER,
 } from "./capabilities.js";
 import { COORDINATION_TOOLS, Coordinator, toolsForRole } from "./coordination.js";
 import { CausalNotebook, NOTEBOOK_TOOLS } from "./modules/causal_notebook.js";
@@ -148,26 +149,21 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
     const monitor = new DetectionMonitor({ log: detectionLog, repetition });
     monitor.on(OVERMIND_EVENT_ALERT, (...args) => captureNotebookAlert(...args, stateDirectory));
     let disposed = false;
-    let coordinator: Coordinator | undefined;
     let capabilities: Promise<CapabilityService> | undefined;
-    function coordinatorFor(paseo: PaseoApi): Coordinator {
-      coordinator ??= new Coordinator({
-        paseo,
-        seats,
-        relay,
-        tickets,
-        detections: detectionLog,
-        repetition,
-        intents: new IntentStore(join(stateDirectory, "intent.json")),
-        profiles: async () => seatProfiles(paseo, await currentSettings()),
-      });
-      return coordinator;
-    }
     function capabilityService(paseo: PaseoApi): Promise<CapabilityService> {
       capabilities ??= CapabilityService.open(
         join(stateDirectory, "capabilities.json"),
         paseo,
-        coordinatorFor(paseo),
+        new Coordinator({
+          paseo,
+          seats,
+          relay,
+          tickets,
+          detections: detectionLog,
+          repetition,
+          intents: new IntentStore(join(stateDirectory, "intent.json")),
+          profiles: async () => seatProfiles(paseo, await currentSettings()),
+        }),
       );
       void capabilities.catch(() => {
         capabilities = undefined;
@@ -493,31 +489,23 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         // A new seat binds its grant once; a resumed seat keeps the persisted binding.
         if (service && capability)
           await service.bind(capability, { provider: request.provider, agentId: request.agentId });
-        // COMPAT(supervisorWakeTools): 0.14 supplies tools here; 0.13.2 uses the MCP grant on new seats.
+        // COMPAT(supervisorWakeMcp): 0.14 supplies mcpServers here; 0.13.2 uses the grant on new seats.
         // Remove when the plugin's minimum Paseo version reaches 0.14 (after 2027-02-04).
-        const tools =
-          aliasRole === "supervisor" && "tools" in request && Array.isArray(request.tools)
-            ? [
-                ...request.tools,
-                {
-                  name: "create_supervisor_wake",
-                  description: COORDINATION_TOOLS.create_supervisor_wake.description,
-                  input: COORDINATION_TOOLS.create_supervisor_wake.schema,
-                  execute: async (input: unknown) => ({
-                    text: JSON.stringify(
-                      await coordinatorFor(paseo).call(
-                        request.agentId,
-                        "create_supervisor_wake",
-                        input,
-                      ),
-                    ),
-                  }),
-                },
-              ]
+        const mcpServers =
+          aliasRole === "supervisor" &&
+          service &&
+          capability &&
+          "mcpServers" in request &&
+          typeof request.mcpServers === "object" &&
+          request.mcpServers !== null
+            ? {
+                ...request.mcpServers,
+                [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(capability, request.agentId),
+              }
             : undefined;
         return {
           ...request,
-          ...(tools ? { tools } : {}),
+          ...(mcpServers ? { mcpServers } : {}),
           env: { ...request.env, ...env, ...roleSkillEnv(role) },
         };
       }),

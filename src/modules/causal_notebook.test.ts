@@ -310,6 +310,20 @@ test("real MCP actions persist through service/session reset and reject forged r
     });
     expect(forgedWake.isError).toBe(true);
     await client.close();
+    client = new Client({ name: "wake-only", version: "1" });
+    await connect(service.supervisorWakeServer(capabilityId!, supervisor.agentId));
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      "create_supervisor_wake",
+    ]);
+    expect(
+      (
+        await client.callTool({
+          name: "create_agent",
+          arguments: { prompt: "new Lead", task: "x" },
+        })
+      ).isError,
+    ).toBe(true);
+    await client.close();
     for (provider of ["overmind-lead", "overmind-peer"]) {
       client = new Client({ name: "forged-role", version: "1" });
       await expect(connect(notebookServer)).rejects.toThrow();

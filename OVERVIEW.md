@@ -24,9 +24,10 @@ of existing work; the action accepts no target, provider, model, or custom promp
 Lead and Peer cannot call it, and raw Paseo scheduler tools remain disabled.
 The host's Paseo CLI must be available through `PASEO_CLI` (Desktop sets it) or
 `PATH`; it uses the daemon's `PASEO_HOME`, or the default `~/.paseo`.
-Paseo 0.14 also attaches this one action as a session tool when a Supervisor opens
-or refreshes, so an existing Codex conversation can use it without replacing its
-saved MCP allowlist. The agent ID, provider/model and read-only policy stay intact.
+Paseo 0.14 also injects a dedicated `overmind_wake` MCP server when a Supervisor
+opens or refreshes. This endpoint exposes only `create_supervisor_wake`, so an
+existing Codex conversation can use it without replacing its saved MCP allowlist.
+The agent ID, provider/model and read-only policy stay intact.
 
 The Human's product intent lives per project in `~/.overmind/paseo-plugin/intent.json`,
 outside any one task. The Supervisor registers questions with `product_intent` action

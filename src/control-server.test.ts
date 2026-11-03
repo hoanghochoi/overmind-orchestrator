@@ -787,13 +787,15 @@ describe("Overmind control backend", () => {
             env: request.env,
             reason: "refresh",
             tools: [],
+            mcpServers: {},
           },
         },
         context,
       );
-      expect(nativeLaunch.tools.map((tool: { name: string }) => tool.name)).toEqual([
-        "create_supervisor_wake",
-      ]);
+      expect(nativeLaunch.mcpServers.overmind_wake).toMatchObject({
+        type: "http",
+        url: expect.stringMatching(/\/wake\//),
+      });
       const leadLaunch = await open(
         {
           request: {
@@ -803,14 +805,12 @@ describe("Overmind control backend", () => {
             env: {},
             reason: "refresh",
             tools: [],
+            mcpServers: {},
           },
         },
         context,
       );
-      expect(leadLaunch.tools).toEqual([]);
-      await expect(
-        nativeLaunch.tools[0].execute({ cron: "* * * * *", agentId: "other" }),
-      ).rejects.toThrow();
+      expect(leadLaunch.mcpServers).toEqual({});
 
       await expect(
         create({ request: { config: { provider: "overmind-lead", cwd: "." } } }, context),
