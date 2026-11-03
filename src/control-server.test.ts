@@ -778,6 +778,40 @@ describe("Overmind control backend", () => {
         OVERMIND_NATIVE_SUBAGENTS_ENABLED: "false",
       });
 
+      const nativeLaunch = await open(
+        {
+          request: {
+            agentId: "supervisor",
+            provider: "overmind-supervisor",
+            cwd: ".",
+            env: request.env,
+            reason: "refresh",
+            tools: [],
+          },
+        },
+        context,
+      );
+      expect(nativeLaunch.tools.map((tool: { name: string }) => tool.name)).toEqual([
+        "create_supervisor_wake",
+      ]);
+      const leadLaunch = await open(
+        {
+          request: {
+            agentId: "lead",
+            provider: "overmind-lead",
+            cwd: ".",
+            env: {},
+            reason: "refresh",
+            tools: [],
+          },
+        },
+        context,
+      );
+      expect(leadLaunch.tools).toEqual([]);
+      await expect(
+        nativeLaunch.tools[0].execute({ cron: "* * * * *", agentId: "other" }),
+      ).rejects.toThrow();
+
       await expect(
         create({ request: { config: { provider: "overmind-lead", cwd: "." } } }, context),
       ).rejects.toThrow("OVERMIND_ROLE_DENIED");
@@ -788,13 +822,14 @@ describe("Overmind control backend", () => {
     }
   });
 
-  test("a reloaded plugin listens on the persisted endpoint before a live seat's next turn", async () => {
+  test("a status read restores the persisted MCP endpoint without waking a live seat", async () => {
     const values = overmindSettings.schema.parse({
       supervisor: { provider: "codex", model: "chosen" },
     });
     const contribution = () => {
       const before = vi.fn(() => () => undefined);
       const on = vi.fn(() => () => undefined);
+      const handle = vi.fn();
       const server = {
         registerSettings: () => ({
           read: async () => ({ status: "ready", values, revision: "1" }),
@@ -802,9 +837,9 @@ describe("Overmind control backend", () => {
         }),
         before,
         on,
-        handle: vi.fn(),
+        handle,
       } as unknown as PluginServerContext;
-      return { server, before, on };
+      return { server, before, on, handle };
     };
     const env = vi
       .spyOn(DriverRegistry.getAdapter("codex"), "buildSpawnEnv")
@@ -827,16 +862,10 @@ describe("Overmind control backend", () => {
       const second = contribution();
       const cleanupSecond = createContribution({ stateDirectory })(second.server);
       try {
-        const started = second.on.mock.calls.find(([name]) => name === "agent.turn_started")![1];
-        const agent: PluginHookAgent = {
-          id: "supervisor",
-          provider: "overmind-supervisor",
-          cwd: ".",
-          workspaceId: "ws-1",
-          parentAgentId: null,
-          title: "Supervisor",
-        };
-        started({ agent, turnId: "t1" }, context);
+        const readLabels = second.handle.mock.calls.find(
+          ([contract]) => contract.name === "seat.labels",
+        )![1];
+        await readLabels({ agentIds: ["supervisor"] }, context);
         await vi.waitUntil(() => listening(url));
       } finally {
         await cleanupSecond();

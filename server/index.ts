@@ -148,21 +148,26 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
     const monitor = new DetectionMonitor({ log: detectionLog, repetition });
     monitor.on(OVERMIND_EVENT_ALERT, (...args) => captureNotebookAlert(...args, stateDirectory));
     let disposed = false;
+    let coordinator: Coordinator | undefined;
     let capabilities: Promise<CapabilityService> | undefined;
+    function coordinatorFor(paseo: PaseoApi): Coordinator {
+      coordinator ??= new Coordinator({
+        paseo,
+        seats,
+        relay,
+        tickets,
+        detections: detectionLog,
+        repetition,
+        intents: new IntentStore(join(stateDirectory, "intent.json")),
+        profiles: async () => seatProfiles(paseo, await currentSettings()),
+      });
+      return coordinator;
+    }
     function capabilityService(paseo: PaseoApi): Promise<CapabilityService> {
       capabilities ??= CapabilityService.open(
         join(stateDirectory, "capabilities.json"),
         paseo,
-        new Coordinator({
-          paseo,
-          seats,
-          relay,
-          tickets,
-          detections: detectionLog,
-          repetition,
-          intents: new IntentStore(join(stateDirectory, "intent.json")),
-          profiles: async () => seatProfiles(paseo, await currentSettings()),
-        }),
+        coordinatorFor(paseo),
       );
       void capabilities.catch(() => {
         capabilities = undefined;
@@ -275,7 +280,11 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
      * the turns that ended while the plugin was down.
      */
     function reconcileOnce(paseo: PaseoApi): void {
-      reconciled ??= Promise.all([relay.reconcile(paseo), reconcileSeats(paseo)])
+      reconciled ??= Promise.all([
+        capabilityService(paseo),
+        relay.reconcile(paseo),
+        reconcileSeats(paseo),
+      ])
         .then(() => undefined)
         .catch(() => {
           reconciled = undefined;
@@ -484,7 +493,33 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         // A new seat binds its grant once; a resumed seat keeps the persisted binding.
         if (service && capability)
           await service.bind(capability, { provider: request.provider, agentId: request.agentId });
-        return { ...request, env: { ...request.env, ...env, ...roleSkillEnv(role) } };
+        // COMPAT(supervisorWakeTools): 0.14 supplies tools here; 0.13.2 uses the MCP grant on new seats.
+        // Remove when the plugin's minimum Paseo version reaches 0.14 (after 2027-02-04).
+        const tools =
+          aliasRole === "supervisor" && "tools" in request && Array.isArray(request.tools)
+            ? [
+                ...request.tools,
+                {
+                  name: "create_supervisor_wake",
+                  description: COORDINATION_TOOLS.create_supervisor_wake.description,
+                  input: COORDINATION_TOOLS.create_supervisor_wake.schema,
+                  execute: async (input: unknown) => ({
+                    text: JSON.stringify(
+                      await coordinatorFor(paseo).call(
+                        request.agentId,
+                        "create_supervisor_wake",
+                        input,
+                      ),
+                    ),
+                  }),
+                },
+              ]
+            : undefined;
+        return {
+          ...request,
+          ...(tools ? { tools } : {}),
+          env: { ...request.env, ...env, ...roleSkillEnv(role) },
+        };
       }),
       server.on("agent.turn_started", ({ agent, turnId }, { paseo }) => {
         reconcileOnce(paseo);
