@@ -746,6 +746,7 @@ describe("Overmind control backend", () => {
         toolPolicy: {
           preapproved: expect.arrayContaining([
             { kind: "mcp", server: "overmind", tool: "create_agent" },
+            { kind: "mcp", server: "overmind", tool: "create_supervisor_wake" },
             { kind: "mcp", server: "overmind", tool: "overmind_task_review" },
             { kind: "mcp", server: "overmind_notebook", tool: "causal_notebook_write" },
           ]),

@@ -7,6 +7,7 @@ Overmind runs on the Paseo daemon host. Agents, provider credentials, notebooks,
 ## What it adds
 
 - Supervisor → Lead → Peer delegation with explicit ownership.
+- A Supervisor-only `create_supervisor_wake` action for one scheduled wake of the current conversation.
 - Provider-neutral adapters for Codex, Claude, OpenCode, Pi, Antigravity-compatible ACP, and generic CLIs.
 - Overmind Command screen for setup, seat status, activity, alerts, and notebook review.
 - Causal notebook stored per project in the plugin state directory.
@@ -20,6 +21,7 @@ Overmind runs on the Paseo daemon host. Agents, provider credentials, notebooks,
 - Paseo 0.13.2 or newer with plugins enabled.
 - The provider CLIs or ACP providers selected in Overmind Settings.
 - Provider authentication configured on the same daemon host.
+- The Paseo CLI available through `PASEO_CLI` or `PATH` for scheduled Supervisor wakes. Desktop supplies `PASEO_CLI`.
 - Node.js and npm only when installing from npm or when a plugin preparation step is declared.
 
 The plugin does not include provider accounts or credentials. Each user configures those in Paseo on the host where the daemon runs.

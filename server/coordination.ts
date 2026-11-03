@@ -31,6 +31,7 @@ import { DetectionLog } from "./detection-log.js";
 import { escalatedAntiPatterns, type RepetitionTracker } from "./repetition.js";
 import { NAME_LABEL, pickName, seatTitle } from "./names.js";
 import type { IntentStore } from "./intent-store.js";
+import { createSupervisorWake, supervisorWakeInput } from "./supervisor-wake.js";
 
 const agentId = z.string().trim().min(1);
 const prompt = z.string().trim().min(1).max(32_000);
@@ -124,6 +125,12 @@ export const COORDINATION_TOOLS = {
     description: "List models of a provider.",
     schema: z.object({ provider: z.string().trim().min(1) }).strict(),
     roles: BOTH,
+  },
+  create_supervisor_wake: {
+    description:
+      "Supervisor only. Schedule one governance wake for this authenticated Supervisor. Pass a five-field cron and optional IANA timezone (default UTC); only the next matching time runs. Target and maxRuns=1 are fixed by the server. The wake resumes existing work, without creating a Lead or changing provider/model. End your turn after scheduling; do not poll or loop.",
+    schema: supervisorWakeInput,
+    roles: ["supervisor"],
   },
   create_agent: {
     description:
@@ -382,6 +389,8 @@ export class Coordinator {
         return paseo.providers.listAvailable();
       case "list_models":
         return paseo.providers.listModels((input as { provider: string }).provider);
+      case "create_supervisor_wake":
+        return createSupervisorWake(caller.id, input as z.infer<typeof supervisorWakeInput>);
       case "create_agent":
         return this.createAgent(
           caller,

@@ -1,7 +1,8 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { execCommand } from "@getpaseo/plugin/server";
 import type { PaseoApi } from "@getpaseo/client";
 import type { PluginHookAgent } from "@getpaseo/plugin/server";
 import { Coordinator } from "../server/coordination.js";
@@ -13,6 +14,8 @@ import { RepetitionTracker } from "../server/repetition.js";
 import { GREAT_NAMES, pickName } from "../server/names.js";
 import { IntentStore } from "../server/intent-store.js";
 import type { SeatProfile } from "../server/providers.js";
+
+vi.mock("@getpaseo/plugin/server", () => ({ execCommand: vi.fn() }));
 
 interface FakeAgent {
   id: string;
@@ -98,6 +101,7 @@ function fakePaseo(directory: string) {
 
 let directory: string;
 beforeEach(async () => {
+  vi.resetAllMocks();
   directory = await mkdtemp(path.join(tmpdir(), "overmind-coordination-"));
 });
 afterEach(async () => {
@@ -153,6 +157,92 @@ function hookAgent(id: string, provider: string, parentAgentId: string | null): 
 }
 
 describe("Overmind coordination tools", () => {
+  test("a Supervisor schedules one wake for its authenticated current agent", async () => {
+    const { coordinator, created } = setup();
+    vi.mocked(execCommand).mockResolvedValueOnce({
+      stdout: JSON.stringify({ id: "wake-1", status: "active", nextRunAt: "2026-11-05T00:00:00Z" }),
+      stderr: "",
+    });
+    await expect(
+      coordinator.call("sup", "create_supervisor_wake", {
+        cron: "0 7 * * *",
+        timezone: "Asia/Bangkok",
+      }),
+    ).resolves.toMatchObject({
+      id: "wake-1",
+      target: { type: "agent", agentId: "sup" },
+      maxRuns: 1,
+      nextRunAt: "2026-11-05T00:00:00Z",
+    });
+    expect(execCommand).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.arrayContaining([
+        "heartbeat",
+        "create",
+        "--cron",
+        "0 7 * * *",
+        "--timezone",
+        "Asia/Bangkok",
+        "--max-runs",
+        "1",
+        "--json",
+      ]),
+      expect.objectContaining({ env: expect.objectContaining({ PASEO_AGENT_ID: "sup" }) }),
+    );
+    expect(created).toHaveLength(0);
+  });
+
+  test.each(["lead", "peer", "missing"])("%s cannot schedule a Supervisor wake", async (id) => {
+    const { coordinator } = setup();
+    await expect(
+      coordinator.call(id, "create_supervisor_wake", { cron: "* * * * *" }),
+    ).rejects.toThrow("OVERMIND_ROLE_DENIED");
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { agentId: "other-supervisor" },
+    { target: { type: "agent", agentId: "lead" } },
+    { target: { type: "new-agent", config: { provider: "overmind-lead" } } },
+    { maxRuns: 2 },
+    { maxRuns: null },
+    { provider: "overmind-lead" },
+    { model: "different-model" },
+    { prompt: "Create another Lead" },
+    { serverId: "other-host" },
+    { cron: "* * * * * & whoami" },
+    { timezone: "UTC%PATH%" },
+  ])("rejects wake overrides and shell text: %j", async (override) => {
+    const { coordinator } = setup();
+    await expect(
+      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *", ...override }),
+    ).rejects.toThrow();
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  test("rechecks the live Supervisor role and archive state before a wake", async () => {
+    const { coordinator, agents } = setup();
+    const sup = agents.get("sup")!;
+    sup.archivedAt = new Date().toISOString();
+    await expect(
+      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" }),
+    ).rejects.toThrow("OVERMIND_ROLE_DENIED");
+    sup.archivedAt = null;
+    sup.provider = "overmind-lead";
+    await expect(
+      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" }),
+    ).rejects.toThrow("OVERMIND_ROLE_DENIED");
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  test("surfaces a failed wake creation without reporting success", async () => {
+    const { coordinator } = setup();
+    vi.mocked(execCommand).mockRejectedValueOnce(new Error("Invalid cron expression"));
+    await expect(
+      coordinator.call("sup", "create_supervisor_wake", { cron: "99 * * * *" }),
+    ).rejects.toThrow("Invalid cron expression");
+  });
+
   test("a Supervisor creates an attached Lead with a one-time ticket", async () => {
     const { coordinator, created, tickets } = setup();
     const result = await coordinator.call("sup", "create_agent", {
