@@ -89,6 +89,47 @@ describe("Overmind driver adapters", () => {
     }
   });
 
+  test("preapproves only the current Supervisor wake and discards inherited grants", async () => {
+    const root = await mkdtemp(join(tmpdir(), "overmind-wake-role-"));
+    try {
+      await mkdir(join(root, ".codex"), { recursive: true });
+      await writeFile(
+        join(root, ".codex", "config.toml"),
+        [
+          "[mcp_servers.overmind_wake]",
+          'url = "https://stale.invalid/mcp"',
+          'disabled_tools = ["create_supervisor_wake"]',
+          "[mcp_servers.overmind_wake.tools.create_agent]",
+          'approval_mode = "approve"',
+        ].join("\n"),
+      );
+      const wake = {
+        url: "http://127.0.0.1:12345/wake/current-grant",
+        http_headers: { Authorization: "Bearer current-token" },
+        enabled_tools: ["create_supervisor_wake"],
+        default_tools_approval_mode: "prompt",
+        tools: { create_supervisor_wake: { approval_mode: "approve" } },
+      };
+      const adapter = new CodexCliAdapter();
+      const env = await adapter.buildSpawnEnv("supervisor", {
+        homeDirectory: root,
+        roleOverlay: { mcp_servers: { overmind_wake: wake } },
+      });
+      const read = async (home: string) => parse(await readFile(join(home, "config.toml"), "utf8"));
+      expect((await read(env.CODEX_HOME!)).mcp_servers).toEqual({ overmind_wake: wake });
+      expect((await read(env.CODEX_HOME!)).sandbox_mode).toBe("read-only");
+      await adapter.buildSpawnEnv("supervisor", { homeDirectory: root });
+      expect((await read(env.CODEX_HOME!)).mcp_servers).toEqual({});
+      const peer = await adapter.buildSpawnEnv("peer", {
+        homeDirectory: root,
+        roleOverlay: { mcp_servers: { overmind_wake: wake } },
+      });
+      expect((await read(peer.CODEX_HOME!)).mcp_servers).toEqual({});
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("uses a distinct physical home and provider key for every built-in adapter", async () => {
     const root = await mkdtemp(join(tmpdir(), "overmind-drivers-"));
     try {

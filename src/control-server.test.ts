@@ -796,6 +796,20 @@ describe("Overmind control backend", () => {
         type: "http",
         url: expect.stringMatching(/\/wake\//),
       });
+      expect(env).toHaveBeenLastCalledWith("supervisor", {
+        cwd: ".",
+        roleOverlay: {
+          mcp_servers: {
+            overmind_wake: {
+              url: nativeLaunch.mcpServers.overmind_wake.url,
+              http_headers: nativeLaunch.mcpServers.overmind_wake.headers,
+              enabled_tools: ["create_supervisor_wake"],
+              default_tools_approval_mode: "prompt",
+              tools: { create_supervisor_wake: { approval_mode: "approve" } },
+            },
+          },
+        },
+      });
       const leadLaunch = await open(
         {
           request: {

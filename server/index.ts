@@ -479,10 +479,6 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
             request.provider)
           : request.provider;
         const driver = await resolveDriver(paseo, source);
-        const env = await adapterForProvider(driver).buildSpawnEnv(role, {
-          cwd: request.cwd,
-          ...roleHomeOptions(request.env),
-        });
         const capability = request.env[CAPABILITY_ENV];
         // Resumed seats reach the persisted endpoint, so it must listen before they run.
         const service = aliasRole === "peer" || !aliasRole ? null : await capabilityService(paseo);
@@ -502,6 +498,28 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
                 [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(request.agentId),
               }
             : undefined;
+        const wake = mcpServers?.[SUPERVISOR_WAKE_SERVER];
+        const env = await adapterForProvider(driver).buildSpawnEnv(role, {
+          cwd: request.cwd,
+          ...roleHomeOptions(request.env),
+          // Session-open cannot update a resumed seat's saved toolPolicy on Paseo 0.14.
+          // Codex merges this exact-tool approval beneath the per-agent MCP transport.
+          ...(driver === "codex" && wake
+            ? {
+                roleOverlay: {
+                  mcp_servers: {
+                    [SUPERVISOR_WAKE_SERVER]: {
+                      url: wake.url,
+                      http_headers: wake.headers,
+                      enabled_tools: ["create_supervisor_wake"],
+                      default_tools_approval_mode: "prompt",
+                      tools: { create_supervisor_wake: { approval_mode: "approve" } },
+                    },
+                  },
+                },
+              }
+            : {}),
+        });
         return {
           ...request,
           ...(mcpServers ? { mcpServers } : {}),

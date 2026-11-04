@@ -115,6 +115,29 @@ function mergeToml(base: TomlTable, overlay: Record<string, unknown>): TomlTable
   return merged;
 }
 
+function applyRoleMcpServers(
+  merged: TomlTable,
+  driverName: string,
+  role: DriverRole,
+  roleOverlay: Readonly<Record<string, unknown>> | undefined,
+): void {
+  const overlayServers = roleOverlay?.mcp_servers;
+  const wake =
+    driverName.trim().toLowerCase() === "codex" &&
+    role === "supervisor" &&
+    isRecord(overlayServers) &&
+    isRecord(overlayServers.overmind_wake)
+      ? overlayServers.overmind_wake
+      : null;
+  if (role !== "lead" && isRecord(merged.mcp_servers)) {
+    for (const name of Object.keys(merged.mcp_servers)) {
+      if (!ROLE_MCP_SERVERS.has(name) && !(wake && name === "overmind_wake"))
+        delete merged.mcp_servers[name];
+    }
+  }
+  if (wake && isRecord(merged.mcp_servers)) merged.mcp_servers.overmind_wake = wake as TomlValue;
+}
+
 async function readable(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -300,9 +323,8 @@ export async function prepareRoleEnvironment(
     enforcedOverlay(driverName, role, policy.sandboxMode),
   );
   if (isRecord(merged.overmind)) delete merged.overmind.causal_notebook;
-  if (role !== "lead" && isRecord(merged.mcp_servers))
-    for (const name of Object.keys(merged.mcp_servers))
-      if (!ROLE_MCP_SERVERS.has(name)) delete merged.mcp_servers[name];
+  // Never inherit a previous Supervisor's grant or broader tool settings from disk.
+  applyRoleMcpServers(merged, driverName, role, options.roleOverlay);
   if (driverName.trim().toLowerCase() === "codex") {
     const disabled = await collectDisabledCodexSkills(
       root,
