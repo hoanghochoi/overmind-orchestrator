@@ -494,13 +494,12 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         const mcpServers =
           aliasRole === "supervisor" &&
           service &&
-          capability &&
           "mcpServers" in request &&
           typeof request.mcpServers === "object" &&
           request.mcpServers !== null
             ? {
                 ...request.mcpServers,
-                [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(capability, request.agentId),
+                [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(request.agentId),
               }
             : undefined;
         return {

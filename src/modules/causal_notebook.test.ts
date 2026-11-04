@@ -311,7 +311,10 @@ test("real MCP actions persist through service/session reset and reject forged r
     expect(forgedWake.isError).toBe(true);
     await client.close();
     client = new Client({ name: "wake-only", version: "1" });
-    await connect(service.supervisorWakeServer(capabilityId!, supervisor.agentId));
+    expect(() => service.supervisorWakeServer("unbound-agent")).toThrow(
+      "bound Supervisor grant required",
+    );
+    await connect(service.supervisorWakeServer(supervisor.agentId));
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
       "create_supervisor_wake",
     ]);

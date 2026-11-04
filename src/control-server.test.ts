@@ -784,7 +784,7 @@ describe("Overmind control backend", () => {
             agentId: "supervisor",
             provider: "overmind-supervisor",
             cwd: ".",
-            env: request.env,
+            env: {},
             reason: "refresh",
             tools: [],
             mcpServers: {},

@@ -145,8 +145,8 @@ export class CapabilityService {
     await this.save();
   }
 
-  supervisorWakeServer(id: string, agentId: string) {
-    const grant = this.access.grants.find((item) => item.id === id && item.agentId === agentId);
+  supervisorWakeServer(agentId: string) {
+    const grant = this.access.grants.findLast((item) => item.agentId === agentId);
     if (!grant) throw new Error("OVERMIND_CAPABILITY_DENIED: bound Supervisor grant required");
     return {
       type: "http" as const,
