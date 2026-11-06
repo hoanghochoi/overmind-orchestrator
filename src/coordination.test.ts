@@ -29,14 +29,23 @@ interface FakeAgent {
   archivedAt: string | null;
   title: string | null;
   timeline: { type: string; text: string }[];
+  pendingPermissions?: {
+    id: string;
+    kind: string;
+    input?: Record<string, unknown>;
+    title?: string;
+  }[];
 }
 
 function fakePaseo(directory: string) {
   const agents = new Map<string, FakeAgent>();
   const sent: { to: string; text: string; sourceAgentId?: string }[] = [];
-  const created: { workspaceId: string; options: Record<string, unknown> }[] = [];
+  const created: { workspaceId: string; options: Record<string, unknown> }[] =
+    [];
   const workspaceTitles = new Map<string, string | null>();
-  const add = (agent: Partial<FakeAgent> & { id: string; provider: string }) => {
+  const add = (
+    agent: Partial<FakeAgent> & { id: string; provider: string }
+  ) => {
     agents.set(agent.id, {
       cwd: directory,
       workspaceId: "ws-1",
@@ -47,17 +56,36 @@ function fakePaseo(directory: string) {
       archivedAt: null,
       title: agent.id,
       timeline: [],
+      pendingPermissions: [],
       ...agent,
     });
   };
   const parent = (id: string) => ({ "paseo.parent-agent-id": id });
   const api = {
     agents: {
-      list: async () => ({ entries: [...agents.values()].map((agent) => ({ agent })) }),
+      list: async () => ({
+        entries: [...agents.values()].map((agent) => ({ agent })),
+      }),
       ref: (id: string) => ({
-        refresh: async () => (agents.has(id) ? { agent: agents.get(id)! } : null),
+        refresh: async () =>
+          agents.has(id) ? { agent: agents.get(id)! } : null,
         send: async (text: string, options: { sourceAgentId?: string }) => {
           sent.push({ to: id, text, sourceAgentId: options.sourceAgentId });
+        },
+        respondToPermission: async ({
+          requestId,
+          response,
+        }: {
+          requestId: string;
+          response: unknown;
+        }) => {
+          const agent = agents.get(id)!;
+          agent.pendingPermissions = (agent.pendingPermissions ?? []).filter(
+            (permission) => permission.id !== requestId
+          );
+          (
+            agent as FakeAgent & { lastPermissionResponse?: unknown }
+          ).lastPermissionResponse = response;
         },
         archive: async () => {
           agents.get(id)!.archivedAt = new Date().toISOString();
@@ -79,16 +107,27 @@ function fakePaseo(directory: string) {
         agents: {
           create: async (options: Record<string, unknown>) => {
             // The released SDK rejects a provider without a model.
-            if (!/^[^/]+\/.+$/.test((options.config as { provider: string }).provider))
-              throw new Error('Expected config.provider in "provider/model" format');
+            if (
+              !/^[^/]+\/.+$/.test(
+                (options.config as { provider: string }).provider
+              )
+            )
+              throw new Error(
+                'Expected config.provider in "provider/model" format'
+              );
             created.push({ workspaceId, options });
             const id = `created-${created.length}`;
             add({
               id,
-              provider: (options.config as { provider: string }).provider.split("/")[0]!,
+              provider: (options.config as { provider: string }).provider.split(
+                "/"
+              )[0]!,
               workspaceId,
               title: options.title as string,
-              labels: { ...(options.labels as object), ...parent(options.parent as string) },
+              labels: {
+                ...(options.labels as object),
+                ...parent(options.parent as string),
+              },
             });
             return { id };
           },
@@ -113,7 +152,9 @@ function setup() {
   const seats = new SeatStore(path.join(directory, "state", "seats.json"));
   const relay = new Relay(seats);
   const tickets = new CreationTickets();
-  const detections = new DetectionLog(path.join(directory, "state", "detections.jsonl"));
+  const detections = new DetectionLog(
+    path.join(directory, "state", "detections.jsonl")
+  );
   const repetition = new RepetitionTracker(seats);
   const coordinator = new Coordinator({
     paseo: fake.api,
@@ -124,7 +165,11 @@ function setup() {
     repetition,
     intents: new IntentStore(path.join(directory, "state", "intent.json")),
     profiles: async () => [
-      seatProfile({ role: "lead", provider: "overmind-lead", model: "lead-model" }),
+      seatProfile({
+        role: "lead",
+        provider: "overmind-lead",
+        model: "lead-model",
+      }),
       seatProfile({
         role: "peer",
         provider: "overmind-peer",
@@ -134,15 +179,32 @@ function setup() {
     ],
   });
   fake.add({ id: "sup", provider: "overmind-supervisor" });
-  fake.add({ id: "lead", provider: "overmind-lead", labels: fake.parent("sup") });
-  fake.add({ id: "peer", provider: "overmind-peer", labels: fake.parent("lead") });
-  fake.add({ id: "other-lead", provider: "overmind-lead", labels: fake.parent("someone") });
-  fake.add({ id: "foreign-peer", provider: "overmind-peer", labels: fake.parent("other-lead") });
+  fake.add({
+    id: "lead",
+    provider: "overmind-lead",
+    labels: fake.parent("sup"),
+  });
+  fake.add({
+    id: "peer",
+    provider: "overmind-peer",
+    labels: fake.parent("lead"),
+  });
+  fake.add({
+    id: "other-lead",
+    provider: "overmind-lead",
+    labels: fake.parent("someone"),
+  });
+  fake.add({
+    id: "foreign-peer",
+    provider: "overmind-peer",
+    labels: fake.parent("other-lead"),
+  });
   return { ...fake, seats, relay, tickets, coordinator, detections };
 }
 
 function seatProfile(
-  profile: Pick<SeatProfile, "role" | "provider" | "model"> & Partial<SeatProfile>,
+  profile: Pick<SeatProfile, "role" | "provider" | "model"> &
+    Partial<SeatProfile>
 ): SeatProfile {
   return {
     efforts: [],
@@ -152,22 +214,37 @@ function seatProfile(
   };
 }
 
-function hookAgent(id: string, provider: string, parentAgentId: string | null): PluginHookAgent {
-  return { id, provider, cwd: directory, workspaceId: "ws-1", parentAgentId, title: id };
+function hookAgent(
+  id: string,
+  provider: string,
+  parentAgentId: string | null
+): PluginHookAgent {
+  return {
+    id,
+    provider,
+    cwd: directory,
+    workspaceId: "ws-1",
+    parentAgentId,
+    title: id,
+  };
 }
 
 describe("Overmind coordination tools", () => {
   test("a Supervisor schedules one wake for its authenticated current agent", async () => {
     const { coordinator, created } = setup();
     vi.mocked(execCommand).mockResolvedValueOnce({
-      stdout: JSON.stringify({ id: "wake-1", status: "active", nextRunAt: "2026-11-05T00:00:00Z" }),
+      stdout: JSON.stringify({
+        id: "wake-1",
+        status: "active",
+        nextRunAt: "2026-11-05T00:00:00Z",
+      }),
       stderr: "",
     });
     await expect(
       coordinator.call("sup", "create_supervisor_wake", {
         cron: "0 7 * * *",
         timezone: "Asia/Bangkok",
-      }),
+      })
     ).resolves.toMatchObject({
       id: "wake-1",
       target: { type: "agent", agentId: "sup" },
@@ -187,18 +264,23 @@ describe("Overmind coordination tools", () => {
         "1",
         "--json",
       ]),
-      expect.objectContaining({ env: expect.objectContaining({ PASEO_AGENT_ID: "sup" }) }),
+      expect.objectContaining({
+        env: expect.objectContaining({ PASEO_AGENT_ID: "sup" }),
+      })
     );
     expect(created).toHaveLength(0);
   });
 
-  test.each(["lead", "peer", "missing"])("%s cannot schedule a Supervisor wake", async (id) => {
-    const { coordinator } = setup();
-    await expect(
-      coordinator.call(id, "create_supervisor_wake", { cron: "* * * * *" }),
-    ).rejects.toThrow("OVERMIND_ROLE_DENIED");
-    expect(execCommand).not.toHaveBeenCalled();
-  });
+  test.each(["lead", "peer", "missing"])(
+    "%s cannot schedule a Supervisor wake",
+    async (id) => {
+      const { coordinator } = setup();
+      await expect(
+        coordinator.call(id, "create_supervisor_wake", { cron: "* * * * *" })
+      ).rejects.toThrow("OVERMIND_ROLE_DENIED");
+      expect(execCommand).not.toHaveBeenCalled();
+    }
+  );
 
   test.each([
     { agentId: "other-supervisor" },
@@ -215,7 +297,10 @@ describe("Overmind coordination tools", () => {
   ])("rejects wake overrides and shell text: %j", async (override) => {
     const { coordinator } = setup();
     await expect(
-      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *", ...override }),
+      coordinator.call("sup", "create_supervisor_wake", {
+        cron: "* * * * *",
+        ...override,
+      })
     ).rejects.toThrow();
     expect(execCommand).not.toHaveBeenCalled();
   });
@@ -225,21 +310,23 @@ describe("Overmind coordination tools", () => {
     const sup = agents.get("sup")!;
     sup.archivedAt = new Date().toISOString();
     await expect(
-      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" }),
+      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     sup.archivedAt = null;
     sup.provider = "overmind-lead";
     await expect(
-      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" }),
+      coordinator.call("sup", "create_supervisor_wake", { cron: "* * * * *" })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     expect(execCommand).not.toHaveBeenCalled();
   });
 
   test("surfaces a failed wake creation without reporting success", async () => {
     const { coordinator } = setup();
-    vi.mocked(execCommand).mockRejectedValueOnce(new Error("Invalid cron expression"));
+    vi.mocked(execCommand).mockRejectedValueOnce(
+      new Error("Invalid cron expression")
+    );
     await expect(
-      coordinator.call("sup", "create_supervisor_wake", { cron: "99 * * * *" }),
+      coordinator.call("sup", "create_supervisor_wake", { cron: "99 * * * *" })
     ).rejects.toThrow("Invalid cron expression");
   });
 
@@ -251,14 +338,25 @@ describe("Overmind coordination tools", () => {
       workspaceId: "ws-2",
     });
     expect(result).toMatchObject({ role: "lead", workspaceId: "ws-2" });
-    const options = created[0]!.options as { env: Record<string, string>; parent: string };
+    const options = created[0]!.options as {
+      env: Record<string, string>;
+      parent: string;
+    };
     expect(created[0]).toMatchObject({
       workspaceId: "ws-2",
-      options: { config: { provider: "overmind-lead/lead-model" }, parent: "sup" },
+      options: {
+        config: { provider: "overmind-lead/lead-model" },
+        parent: "sup",
+      },
     });
-    expect(tickets.consume(options.env[CREATION_TICKET_ENV], "peer")).toBe(false);
+    expect(tickets.consume(options.env[CREATION_TICKET_ENV], "peer")).toBe(
+      false
+    );
     await expect(
-      coordinator.call("sup", "create_agent", { prompt: "missing workspace", task: "x" }),
+      coordinator.call("sup", "create_agent", {
+        prompt: "missing workspace",
+        task: "x",
+      })
     ).rejects.toThrow("needs the target workspaceId");
   });
 
@@ -288,7 +386,7 @@ describe("Overmind coordination tools", () => {
       task: "Cảnh dòng sông",
     });
     expect(workspaceTitles.get("ws-2")).toBe(
-      `${leadTitle.split(" - ")[0]} - Lead - Cảnh dòng sông`,
+      `${leadTitle.split(" - ")[0]} - Lead - Cảnh dòng sông`
     );
   });
 
@@ -300,50 +398,77 @@ describe("Overmind coordination tools", () => {
       effort: "high",
     });
     expect(created.at(-1)!.options).toMatchObject({
-      config: { provider: "overmind-peer/peer-model", thinkingOptionId: "high" },
+      config: {
+        provider: "overmind-peer/peer-model",
+        thinkingOptionId: "high",
+      },
     });
     await expect(
-      coordinator.call("lead", "create_agent", { prompt: "x", task: "x", effort: "xhigh" }),
+      coordinator.call("lead", "create_agent", {
+        prompt: "x",
+        task: "x",
+        effort: "xhigh",
+      })
     ).rejects.toThrow("effort xhigh is not offered by peer");
     await expect(
-      coordinator.call("lead", "create_agent", { prompt: "x", task: "x", kind: "image" }),
+      coordinator.call("lead", "create_agent", {
+        prompt: "x",
+        task: "x",
+        kind: "image",
+      })
     ).rejects.toThrow();
   });
 
   test("the name pool repeats only once every name is taken", () => {
     expect(GREAT_NAMES).toHaveLength(20);
-    expect(pickName(new Set(GREAT_NAMES.slice(1)), () => 0.99)).toBe(GREAT_NAMES[0]);
+    expect(pickName(new Set(GREAT_NAMES.slice(1)), () => 0.99)).toBe(
+      GREAT_NAMES[0]
+    );
     expect(GREAT_NAMES).toContain(pickName(new Set(GREAT_NAMES)));
   });
 
   test("a Lead reaches only its own Peers and a Peer has no tools", async () => {
     const { coordinator, sent } = setup();
-    await coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Review X" });
-    expect(sent).toEqual([{ to: "peer", text: "Review X", sourceAgentId: "lead" }]);
+    await coordinator.call("lead", "send_agent_prompt", {
+      agentId: "peer",
+      prompt: "Review X",
+    });
+    expect(sent).toEqual([
+      { to: "peer", text: "Review X", sourceAgentId: "lead" },
+    ]);
     await expect(
-      coordinator.call("lead", "send_agent_prompt", { agentId: "foreign-peer", prompt: "x" }),
+      coordinator.call("lead", "send_agent_prompt", {
+        agentId: "foreign-peer",
+        prompt: "x",
+      })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     await expect(
-      coordinator.call("lead", "send_agent_prompt", { agentId: "other-lead", prompt: "x" }),
+      coordinator.call("lead", "send_agent_prompt", {
+        agentId: "other-lead",
+        prompt: "x",
+      })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     await expect(coordinator.call("peer", "list_agents", {})).rejects.toThrow(
-      "OVERMIND_ROLE_DENIED",
+      "OVERMIND_ROLE_DENIED"
     );
     await expect(
-      coordinator.call("sup", "archive_agent", { agentId: "other-lead" }),
+      coordinator.call("sup", "archive_agent", { agentId: "other-lead" })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
-    await expect(coordinator.call("lead", "overmind_task_review", {})).rejects.toThrow(
-      "outside the lead role",
-    );
+    await expect(
+      coordinator.call("lead", "overmind_task_review", {})
+    ).rejects.toThrow("outside the lead role");
   });
 
   test("Peer test generation needs the Lead's current contract lock", async () => {
     const { coordinator, seats } = setup();
     const brief = { agentId: "peer", prompt: "Write tests for the login API" };
-    await expect(coordinator.call("lead", "send_agent_prompt", brief)).rejects.toThrow(
-      "OVERMIND_CONTRACT_DENIED",
+    await expect(
+      coordinator.call("lead", "send_agent_prompt", brief)
+    ).rejects.toThrow("OVERMIND_CONTRACT_DENIED");
+    await writeFile(
+      path.join(directory, "schema.sql"),
+      "create table users();"
     );
-    await writeFile(path.join(directory, "schema.sql"), "create table users();");
     await writeFile(path.join(directory, "api.yaml"), "openapi: 3.1.0");
     await coordinator.call("lead", "contract_lock", {
       action: "lock",
@@ -351,23 +476,27 @@ describe("Overmind coordination tools", () => {
       apiContractPath: "api.yaml",
     });
     await coordinator.call("lead", "send_agent_prompt", brief);
-    expect((await seats.get("peer"))["overmind.task.kind"]).toBe("test-generation");
-    await writeFile(path.join(directory, "api.yaml"), "openapi: 3.1.1");
-    await expect(coordinator.call("lead", "send_agent_prompt", brief)).rejects.toThrow(
-      "contract artifacts changed",
+    expect((await seats.get("peer"))["overmind.task.kind"]).toBe(
+      "test-generation"
     );
+    await writeFile(path.join(directory, "api.yaml"), "openapi: 3.1.1");
+    await expect(
+      coordinator.call("lead", "send_agent_prompt", brief)
+    ).rejects.toThrow("contract artifacts changed");
     await expect(
       coordinator.call("lead", "contract_lock", {
         action: "lock",
         schemaPath: "../outside.sql",
         apiContractPath: "api.yaml",
-      }),
+      })
     ).rejects.toThrow("OVERMIND_CONTRACT_DENIED");
   });
 
   test("Supervisor review binds the agreement, the completed turn and every criterion", async () => {
     const { coordinator, agents, seats } = setup();
-    agents.get("sup")!.timeline = [{ type: "user_message", text: "Ship login with 2FA" }];
+    agents.get("sup")!.timeline = [
+      { type: "user_message", text: "Ship login with 2FA" },
+    ];
     await seats.merge("lead", {
       "overmind.turn.id": "turn-1",
       "overmind.turn.outcome": "completed",
@@ -379,15 +508,19 @@ describe("Overmind coordination tools", () => {
         scope: "Login",
         acceptanceCriteria: ["2FA works"],
         humanQuotes: ["invented quote"],
-      }),
+      })
     ).rejects.toThrow("cite actual human messages");
-    const { agreement } = (await coordinator.call("sup", "overmind_task_review", {
-      action: "agreement",
-      agentId: "lead",
-      scope: "Login",
-      acceptanceCriteria: ["2FA works"],
-      humanQuotes: ["login with 2FA"],
-    })) as { agreement: { id: string } };
+    const { agreement } = (await coordinator.call(
+      "sup",
+      "overmind_task_review",
+      {
+        action: "agreement",
+        agentId: "lead",
+        scope: "Login",
+        acceptanceCriteria: ["2FA works"],
+        humanQuotes: ["login with 2FA"],
+      }
+    )) as { agreement: { id: string } };
     const review = {
       action: "review",
       agentId: "lead",
@@ -397,9 +530,9 @@ describe("Overmind coordination tools", () => {
       scope: "within_agreement",
       evidence: "Ran the 2FA suite",
     };
-    await expect(coordinator.call("sup", "overmind_task_review", review)).rejects.toThrow(
-      "evidence for every agreed criterion",
-    );
+    await expect(
+      coordinator.call("sup", "overmind_task_review", review)
+    ).rejects.toThrow("evidence for every agreed criterion");
     await coordinator.call("sup", "overmind_task_review", {
       ...review,
       checks: [{ criterion: "2FA works", evidence: "suite passed" }],
@@ -413,7 +546,7 @@ describe("Overmind coordination tools", () => {
       coordinator.call("sup", "overmind_task_review", {
         ...review,
         checks: [{ criterion: "2FA works", evidence: "suite passed" }],
-      }),
+      })
     ).rejects.toThrow("OVERMIND_REVIEW_CONFLICT");
   });
 });
@@ -426,15 +559,21 @@ describe("Overmind redirect after repetition", () => {
       "overmind.repeat.repeated-local-patch": "3",
     });
     await expect(
-      coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Try again" }),
+      coordinator.call("lead", "send_agent_prompt", {
+        agentId: "peer",
+        prompt: "Try again",
+      })
     ).rejects.toThrow("OVERMIND_REDIRECT_REQUIRED");
     expect(sent).toEqual([]);
     await coordinator.call("lead", "send_agent_prompt", {
       agentId: "peer",
       prompt: "Review the index design",
-      newApproach: "Stop patching the migration; compare the index against the query plan first.",
+      newApproach:
+        "Stop patching the migration; compare the index against the query plan first.",
     });
-    expect(sent[0]!.text).toContain("New approach (replaces the one that kept failing)");
+    expect(sent[0]!.text).toContain(
+      "New approach (replaces the one that kept failing)"
+    );
     expect(await seats.get("peer")).toEqual({});
   });
 });
@@ -475,13 +614,18 @@ describe("Overmind sensor log", () => {
     };
     expect(all.total).toBe(2);
     expect(all.entries.map((entry) => entry.agentId)).toEqual(["peer", "lead"]);
-    expect(all.rules.map((rule) => rule.rule).sort()).toEqual(["blocked", "repeated-failure"]);
-    const rejected = (await coordinator.call("sup", "sensor_log", { confirmed: false })) as {
+    expect(all.rules.map((rule) => rule.rule).sort()).toEqual([
+      "blocked",
+      "repeated-failure",
+    ]);
+    const rejected = (await coordinator.call("sup", "sensor_log", {
+      confirmed: false,
+    })) as {
       entries: { agentId: string }[];
     };
     expect(rejected.entries.map((entry) => entry.agentId)).toEqual(["lead"]);
     await expect(coordinator.call("lead", "sensor_log", {})).rejects.toThrow(
-      "outside the lead role",
+      "outside the lead role"
     );
   });
 });
@@ -494,7 +638,7 @@ describe("Overmind product intent", () => {
         action: "ask",
         project: "FirstBloom",
         questions: ["Cozy or hardcore?"],
-      }),
+      })
     ).rejects.toThrow("belongs to the Supervisor");
     const asked = (await coordinator.call("sup", "product_intent", {
       action: "ask",
@@ -503,7 +647,10 @@ describe("Overmind product intent", () => {
     })) as { questions: { id: string }[] };
     expect((await seats.get("sup"))["overmind.intent.open"]).toBe("1");
     agents.get("sup")!.timeline = [
-      { type: "user_message", text: "Người chơi casual, chơi 10 phút mỗi ngày" },
+      {
+        type: "user_message",
+        text: "Người chơi casual, chơi 10 phút mỗi ngày",
+      },
     ];
     const answer = {
       questionId: asked.questions[0]!.id,
@@ -516,7 +663,7 @@ describe("Overmind product intent", () => {
         action: "record",
         project: "FirstBloom",
         answers: [{ ...answer, humanQuotes: ["hardcore players"] }],
-      }),
+      })
     ).rejects.toThrow("OVERMIND_INTENT_DENIED");
     await coordinator.call("sup", "product_intent", {
       action: "record",
@@ -526,7 +673,10 @@ describe("Overmind product intent", () => {
     expect(await seats.get("sup")).toEqual({});
     // Project names compare loosely, and the Lead can read what was recorded.
     expect(
-      await coordinator.call("lead", "product_intent", { action: "read", project: "firstbloom" }),
+      await coordinator.call("lead", "product_intent", {
+        action: "read",
+        project: "firstbloom",
+      })
     ).toMatchObject({
       open: [],
       entries: [{ answer: "Casual players, 10-minute daily sessions" }],
@@ -541,13 +691,16 @@ describe("Overmind dual-seat", () => {
       coordinator.call("sup", "dual_seat", {
         question: "x".repeat(10),
         directions: [],
-      }),
+      })
     ).rejects.toThrow("outside the supervisor role");
     const result = (await coordinator.call("lead", "dual_seat", {
       question: "How should sessions be cached across restarts?",
       directions: [
         { label: "Redis cache", brief: "Keep sessions in a Redis instance." },
-        { label: "SQLite", brief: "Persist sessions in the local SQLite file." },
+        {
+          label: "SQLite",
+          brief: "Persist sessions in the local SQLite file.",
+        },
       ],
       criteria: ["Survives a restart"],
       effort: "low",
@@ -555,7 +708,10 @@ describe("Overmind dual-seat", () => {
     // Both research Peers run at the chosen effort.
     for (const entry of created.slice(0, 2))
       expect(entry.options).toMatchObject({
-        config: { provider: "overmind-peer/peer-model", thinkingOptionId: "low" },
+        config: {
+          provider: "overmind-peer/peer-model",
+          thinkingOptionId: "low",
+        },
       });
     const [a, b] = result.peers;
     expect(result.peers.map((peer) => peer.side)).toEqual(["A", "B"]);
@@ -563,17 +719,25 @@ describe("Overmind dual-seat", () => {
     expect(briefA).toContain("Redis instance");
     expect(briefA).not.toContain("SQLite");
     expect(briefA).toContain("do not modify files in the workspace");
-    expect(agents.get(a!.agentId)!.title).toMatch(/ - Peer - Hướng A: Redis cache$/);
+    expect(agents.get(a!.agentId)!.title).toMatch(
+      / - Peer - Hướng A: Redis cache$/
+    );
     expect(agents.get(b!.agentId)!.labels["overmind.dual_seat.side"]).toBe("B");
     expect((await seats.get("lead"))["overmind.dual_seat.status"]).toBe("0/2");
     await expect(
-      coordinator.call("lead", "get_agent_status", { agentId: a!.agentId }),
+      coordinator.call("lead", "get_agent_status", { agentId: a!.agentId })
     ).rejects.toThrow("OVERMIND_AWAIT_REPORT");
 
-    agents.get(a!.agentId)!.timeline = [{ type: "assistant_message", text: "Redis works" }];
-    await relay.onTurnEnded(api, hookAgent(a!.agentId, "overmind-peer", "lead"), {
-      kind: "completed",
-    });
+    agents.get(a!.agentId)!.timeline = [
+      { type: "assistant_message", text: "Redis works" },
+    ];
+    await relay.onTurnEnded(
+      api,
+      hookAgent(a!.agentId, "overmind-peer", "lead"),
+      {
+        kind: "completed",
+      }
+    );
     expect(sent).toEqual([]);
     expect((await seats.get("lead"))["overmind.dual_seat.status"]).toBe("1/2");
 
@@ -592,17 +756,35 @@ describe("Overmind dual-seat", () => {
 describe("Overmind relay", () => {
   test("a Lead reports to its Supervisor only after its own Peer work is back", async () => {
     const { coordinator, agents, sent, relay, api } = setup();
-    await coordinator.call("sup", "send_agent_prompt", { agentId: "lead", prompt: "Ship X" });
-    await coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Build X" });
+    await coordinator.call("sup", "send_agent_prompt", {
+      agentId: "lead",
+      prompt: "Ship X",
+    });
+    await coordinator.call("lead", "send_agent_prompt", {
+      agentId: "peer",
+      prompt: "Build X",
+    });
     sent.length = 0;
-    agents.get("lead")!.timeline = [{ type: "assistant_message", text: "Peer dispatched" }];
-    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), { kind: "completed" });
+    agents.get("lead")!.timeline = [
+      { type: "assistant_message", text: "Peer dispatched" },
+    ];
+    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), {
+      kind: "completed",
+    });
     expect(sent).toEqual([]);
-    agents.get("peer")!.timeline = [{ type: "assistant_message", text: "X built" }];
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
+    agents.get("peer")!.timeline = [
+      { type: "assistant_message", text: "X built" },
+    ];
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
     expect(sent.map((entry) => entry.to)).toEqual(["lead"]);
-    agents.get("lead")!.timeline = [{ type: "assistant_message", text: "X shipped, verified" }];
-    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), { kind: "completed" });
+    agents.get("lead")!.timeline = [
+      { type: "assistant_message", text: "X shipped, verified" },
+    ];
+    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), {
+      kind: "completed",
+    });
     expect(sent.at(-1)).toMatchObject({
       to: "sup",
       text: expect.stringContaining("X shipped, verified"),
@@ -611,7 +793,10 @@ describe("Overmind relay", () => {
 
   test("a turn that ended while the plugin was down is reported after reload", async () => {
     const { coordinator, agents, sent, relay, api } = setup();
-    await coordinator.call("sup", "send_agent_prompt", { agentId: "lead", prompt: "Ship X" });
+    await coordinator.call("sup", "send_agent_prompt", {
+      agentId: "lead",
+      prompt: "Ship X",
+    });
     // Still working, or prompted with no answer yet: nothing to report.
     agents.get("lead")!.status = "running";
     await relay.reconcile(api);
@@ -620,7 +805,9 @@ describe("Overmind relay", () => {
     await relay.reconcile(api);
     expect(sent.filter((entry) => entry.to === "sup")).toEqual([]);
     // The handback the plugin missed reaches the Supervisor once, after the reload.
-    agents.get("lead")!.timeline.push({ type: "assistant_message", text: "X shipped" });
+    agents
+      .get("lead")!
+      .timeline.push({ type: "assistant_message", text: "X shipped" });
     await relay.reconcile(api);
     await relay.reconcile(api);
     expect(sent.filter((entry) => entry.to === "sup")).toEqual([
@@ -630,10 +817,18 @@ describe("Overmind relay", () => {
 
   test("a Lead asks its Supervisor mid-task and reports only once answered and done", async () => {
     const { coordinator, agents, sent, relay, api, seats } = setup();
-    await coordinator.call("sup", "send_agent_prompt", { agentId: "lead", prompt: "Ship X" });
-    await coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Build X" });
+    await coordinator.call("sup", "send_agent_prompt", {
+      agentId: "lead",
+      prompt: "Ship X",
+    });
+    await coordinator.call("lead", "send_agent_prompt", {
+      agentId: "peer",
+      prompt: "Build X",
+    });
     await expect(
-      coordinator.call("peer", "ask_supervisor", { question: "Which market first?" }),
+      coordinator.call("peer", "ask_supervisor", {
+        question: "Which market first?",
+      })
     ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     sent.length = 0;
     // The question goes up now, while the Peer is still working.
@@ -642,26 +837,74 @@ describe("Overmind relay", () => {
       options: ["EU", "US"],
     });
     expect(sent).toEqual([
-      expect.objectContaining({ to: "sup", text: expect.stringContaining("- EU") }),
+      expect.objectContaining({
+        to: "sup",
+        text: expect.stringContaining("- EU"),
+      }),
     ]);
-    expect((await seats.get("lead"))["overmind.ask.pending"]).toBe("supervisor");
+    expect((await seats.get("lead"))["overmind.ask.pending"]).toBe(
+      "supervisor"
+    );
     // The Supervisor may read the asking Lead's work to answer.
     await expect(
-      coordinator.call("sup", "get_agent_activity", { agentId: "lead" }),
+      coordinator.call("sup", "get_agent_activity", { agentId: "lead" })
     ).resolves.toBeDefined();
     sent.length = 0;
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
-    agents.get("lead")!.timeline = [{ type: "assistant_message", text: "Peer done, still asking" }];
-    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), { kind: "completed" });
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
+    agents.get("lead")!.timeline = [
+      { type: "assistant_message", text: "Peer done, still asking" },
+    ];
+    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), {
+      kind: "completed",
+    });
     expect(sent.map((entry) => entry.to)).toEqual(["lead"]);
-    await coordinator.call("sup", "send_agent_prompt", { agentId: "lead", prompt: "EU first" });
+    await coordinator.call("sup", "send_agent_prompt", {
+      agentId: "lead",
+      prompt: "EU first",
+    });
     expect(await seats.get("lead")).toEqual({});
-    agents.get("lead")!.timeline = [{ type: "assistant_message", text: "Shipped to EU" }];
-    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), { kind: "completed" });
+    agents.get("lead")!.timeline = [
+      { type: "assistant_message", text: "Shipped to EU" },
+    ];
+    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), {
+      kind: "completed",
+    });
     expect(sent.at(-1)).toMatchObject({
       to: "sup",
       text: expect.stringContaining("Shipped to EU"),
     });
+  });
+
+  test("a Lead answers a pending Peer question and clears the relay entry", async () => {
+    const { api, coordinator, agents, relay } = setup();
+    agents.get("peer")!.pendingPermissions = [
+      {
+        id: "question-1",
+        kind: "question",
+        input: {
+          questions: [
+            { header: "Scope", question: "Which API should I keep?" },
+          ],
+        },
+      },
+    ];
+    await relay.notifyPeerQuestion(
+      api,
+      "peer",
+      "lead",
+      agents.get("peer")!.pendingPermissions[0] as never
+    );
+    // Use the coordinator's live API path; the question must be answered by ownership and ID.
+    await expect(
+      coordinator.call("lead", "answer_peer_question", {
+        agentId: "peer",
+        requestId: "question-1",
+        answers: { Scope: "Keep v2" },
+      })
+    ).resolves.toMatchObject({ agentId: "peer", accepted: true });
+    expect(agents.get("peer")!.pendingPermissions).toEqual([]);
   });
 
   test("pending reports survive a plugin reload", async () => {
@@ -669,12 +912,36 @@ describe("Overmind relay", () => {
     const before = new Relay(undefined, statePath);
     before.expectFinish("peer", "lead");
     await before.flushState();
-    expect(new Relay(undefined, statePath).awaitsReport("peer", "lead")).toBe(true);
+    expect(new Relay(undefined, statePath).awaitsReport("peer", "lead")).toBe(
+      true
+    );
+  });
+
+  test("peer questions survive a plugin reload and are delivered once", async () => {
+    const { api, agents, sent } = setup();
+    const statePath = path.join(directory, "state", "relay-questions.json");
+    agents.get("peer")!.pendingPermissions = [
+      {
+        id: "q-1",
+        kind: "question",
+        input: { questions: [{ header: "Q", question: "Pick one" }] },
+      },
+    ];
+    const first = new Relay(undefined, statePath);
+    await first.reconcilePeerQuestions(api);
+    await first.flushState();
+    expect(sent.filter((entry) => entry.to === "lead")).toHaveLength(1);
+    const second = new Relay(undefined, statePath);
+    await second.reconcilePeerQuestions(api);
+    expect(sent.filter((entry) => entry.to === "lead")).toHaveLength(1);
   });
 
   test("reports delegated work and holds the notice until the requester is idle", async () => {
     const { coordinator, agents, sent, relay, api } = setup();
-    await coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Check X" });
+    await coordinator.call("lead", "send_agent_prompt", {
+      agentId: "peer",
+      prompt: "Check X",
+    });
     sent.length = 0;
     agents.get("peer")!.timeline = [
       {
@@ -684,11 +951,15 @@ describe("Overmind relay", () => {
       { type: "assistant_message", text: "X is fine" },
     ];
     agents.get("lead")!.status = "running";
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
     expect(sent).toEqual([]);
     expect(relay.pending("lead")).toBe(1);
     agents.get("lead")!.status = "idle";
-    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), { kind: "completed" });
+    await relay.onTurnEnded(api, hookAgent("lead", "overmind-lead", "sup"), {
+      kind: "completed",
+    });
     expect(sent).toEqual([
       expect.objectContaining({
         to: "lead",
@@ -698,7 +969,9 @@ describe("Overmind relay", () => {
     ]);
     // The next Peer turn was not delegated, so nothing more is reported.
     sent.length = 0;
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
     expect(sent).toEqual([]);
   });
 
@@ -708,23 +981,33 @@ describe("Overmind relay", () => {
       agentId: "peer",
       prompt: "Check X",
     });
-    expect(accepted).toMatchObject({ next: expect.stringContaining("End your turn") });
-    await expect(coordinator.call("lead", "get_agent_status", { agentId: "peer" })).rejects.toThrow(
-      "OVERMIND_AWAIT_REPORT",
-    );
+    expect(accepted).toMatchObject({
+      next: expect.stringContaining("End your turn"),
+    });
     await expect(
-      coordinator.call("lead", "get_agent_activity", { agentId: "peer" }),
+      coordinator.call("lead", "get_agent_status", { agentId: "peer" })
     ).rejects.toThrow("OVERMIND_AWAIT_REPORT");
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
     await expect(
-      coordinator.call("lead", "get_agent_status", { agentId: "peer" }),
+      coordinator.call("lead", "get_agent_activity", { agentId: "peer" })
+    ).rejects.toThrow("OVERMIND_AWAIT_REPORT");
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
+    await expect(
+      coordinator.call("lead", "get_agent_status", { agentId: "peer" })
     ).resolves.toMatchObject({ agentId: "peer" });
     // A child archived mid-task still wakes the waiting parent.
-    await coordinator.call("lead", "send_agent_prompt", { agentId: "peer", prompt: "Check Y" });
+    await coordinator.call("lead", "send_agent_prompt", {
+      agentId: "peer",
+      prompt: "Check Y",
+    });
     sent.length = 0;
     await relay.onArchived(api, hookAgent("peer", "overmind-peer", "lead"));
     expect(sent).toEqual([
-      expect.objectContaining({ to: "lead", text: expect.stringContaining("was archived") }),
+      expect.objectContaining({
+        to: "lead",
+        text: expect.stringContaining("was archived"),
+      }),
     ]);
     expect(relay.awaitsReport("peer", "lead")).toBe(false);
   });
@@ -735,9 +1018,13 @@ describe("Overmind relay", () => {
       { type: "user_message", text: "Also check the logout flow" },
       { type: "assistant_message", text: "Logout is broken" },
     ];
-    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), { kind: "completed" });
+    await relay.onTurnEnded(api, hookAgent("peer", "overmind-peer", "lead"), {
+      kind: "completed",
+    });
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toContain("Human message:\nAlso check the logout flow");
+    expect(sent[0]!.text).toContain(
+      "Human message:\nAlso check the logout flow"
+    );
     expect(sent[0]!.text).toContain("Logout is broken");
   });
 });

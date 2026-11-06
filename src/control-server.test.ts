@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
-import type { PluginHookAgent, PluginServerContext } from "@getpaseo/plugin/server";
+import type {
+  PluginHookAgent,
+  PluginServerContext,
+} from "@getpaseo/plugin/server";
 import type { ProviderOverride } from "@getpaseo/protocol/provider-config";
 import { overmindSettings, profileBinding } from "../shared/settings.js";
 import { roleForProvider } from "../shared/providers.js";
@@ -40,7 +43,11 @@ vi.mock("../server/embedding.js", () => ({
     [1, 0],
   ]),
   prepareBuiltinEmbedding: vi.fn(async () => undefined),
-  builtinEmbeddingStatus: () => ({ status: "ready", progress: 100, error: null }),
+  builtinEmbeddingStatus: () => ({
+    status: "ready",
+    progress: 100,
+    error: null,
+  }),
   checkEmbedding: vi.fn(),
   listEmbeddingModels: vi.fn(),
   disposeEmbedding: vi.fn(),
@@ -49,7 +56,10 @@ vi.mock("../server/embedding.js", () => ({
 function profileApi(providers: Record<string, unknown> = {}) {
   let config = { providers };
   const patch = vi.fn(
-    async (input: { providers?: Record<string, object>; removeProviders?: string[] }) => {
+    async (input: {
+      providers?: Record<string, object>;
+      removeProviders?: string[];
+    }) => {
       const next: Record<string, unknown> = { ...config.providers };
       for (const id of input.removeProviders ?? []) delete next[id];
       // Paseo merges a provider patch: keys it omits keep their old value.
@@ -57,14 +67,18 @@ function profileApi(providers: Record<string, unknown> = {}) {
         next[id] = { ...(next[id] as object), ...entry };
       config = { providers: next };
       return { config };
-    },
+    }
   );
   const api = {
     config: { get: async () => ({ config }), patch },
     providers: {
       listModels: async () => ({
         models: [
-          { id: "chosen", label: "Chosen", thinkingOptions: [{ id: "high", label: "High" }] },
+          {
+            id: "chosen",
+            label: "Chosen",
+            thinkingOptions: [{ id: "high", label: "High" }],
+          },
         ],
       }),
     },
@@ -90,7 +104,9 @@ describe("Overmind control backend", () => {
       expect(await imageDataUri(png)).toBe(expected);
       expect(await imageDataUri(pathToFileURL(png).href)).toBe(expected);
       await writeFile(path.join(root, "secret.txt"), "token");
-      await expect(imageDataUri(path.join(root, "secret.txt"))).rejects.toThrow("png, jpg");
+      await expect(imageDataUri(path.join(root, "secret.txt"))).rejects.toThrow(
+        "png, jpg"
+      );
       await expect(imageDataUri("concept.png")).rejects.toThrow("tuyệt đối");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -99,7 +115,11 @@ describe("Overmind control backend", () => {
 
   test("publishes owned native profiles and verifies the model and thinking", async () => {
     const values = overmindSettings.schema.parse({
-      supervisor: { provider: "codex", model: "chosen", thinkingOptionId: "high" },
+      supervisor: {
+        provider: "codex",
+        model: "chosen",
+        thinkingOptionId: "high",
+      },
     });
     const fixture = profileApi();
     const result = await publishProfiles(fixture.api, values);
@@ -108,40 +128,71 @@ describe("Overmind control backend", () => {
     expect(fixture.getConfig().providers["overmind-supervisor"]).toMatchObject({
       extends: "codex",
       label: "Overmind Supervisor",
-      env: { OVERMIND_ROLE: "supervisor", OVERMIND_PROFILE_OWNER: "paseo-plugin-overmind" },
-      models: [{ id: "chosen", thinkingOptions: [{ id: "high", isDefault: true }] }],
+      env: {
+        OVERMIND_ROLE: "supervisor",
+        OVERMIND_PROFILE_OWNER: "paseo-plugin-overmind",
+      },
+      models: [
+        { id: "chosen", thinkingOptions: [{ id: "high", isDefault: true }] },
+      ],
     });
-    expect((await profileStatuses(fixture.api, values))[0].status).toBe("ready");
+    expect((await profileStatuses(fixture.api, values))[0].status).toBe(
+      "ready"
+    );
   });
 
   test("profiles keep the Supervisor read-only and Claude seats without native sub-agents", async () => {
     const values = overmindSettings.schema.parse({
-      supervisor: { provider: "codex", model: "chosen", thinkingOptionId: "high" },
+      supervisor: {
+        provider: "codex",
+        model: "chosen",
+        thinkingOptionId: "high",
+      },
       lead: { provider: "claude", model: "chosen", thinkingOptionId: "high" },
     });
     const fixture = profileApi();
     await publishProfiles(fixture.api, values);
     const { providers } = fixture.getConfig() as {
-      providers: Record<string, { options?: object; disallowedTools?: string[] }>;
+      providers: Record<
+        string,
+        { options?: object; disallowedTools?: string[] }
+      >;
     };
     // Profile options outrank the permission mode Settings picks for the seat.
-    expect(providers["overmind-supervisor"]!.options).toEqual({ sandbox_mode: "read-only" });
-    expect(providers["overmind-lead"]!.disallowedTools).toEqual(["Task", "Agent"]);
-    // Republishing the enforced profile is not mistaken for a leftover override.
-    expect((await publishProfiles(fixture.api, values)).map((entry) => entry.status)).toEqual([
-      "ready",
-      "ready",
-      "unconfigured",
+    expect(providers["overmind-supervisor"]!.options).toEqual({
+      sandbox_mode: "read-only",
+    });
+    expect(providers["overmind-lead"]!.disallowedTools).toEqual([
+      "Task",
+      "Agent",
     ]);
+    // Republishing the enforced profile is not mistaken for a leftover override.
+    expect(
+      (await publishProfiles(fixture.api, values)).map((entry) => entry.status)
+    ).toEqual(["ready", "ready", "unconfigured"]);
     // A profile published before enforcement is reported as needing registration.
     const stale = profileApi({
-      "overmind-supervisor": { ...providers["overmind-supervisor"], options: undefined },
+      "overmind-supervisor": {
+        ...providers["overmind-supervisor"],
+        options: undefined,
+      },
     });
-    expect((await profileStatuses(stale.api, values))[0].status).toBe("missing");
+    expect((await profileStatuses(stale.api, values))[0].status).toBe(
+      "missing"
+    );
     expect(enforcedProviderOptions("supervisor", "claude", {})).toEqual({
-      disallowedTools: ["Task", "Agent", "Edit", "Write", "NotebookEdit", "Bash"],
+      disallowedTools: [
+        "Task",
+        "Agent",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "Bash",
+      ],
     });
-    expect(enforcedProviderOptions("peer", "codex", { web_search: "disabled" })).toEqual({
+    expect(
+      enforcedProviderOptions("peer", "codex", { web_search: "disabled" })
+    ).toEqual({
       web_search: "disabled",
     });
   });
@@ -155,17 +206,33 @@ describe("Overmind control backend", () => {
     const codexLead = overmindSettings.schema.parse({
       lead: { provider: "codex", model: "chosen", thinkingOptionId: "high" },
     });
-    expect((await publishProfiles(fixture.api, codexLead))[1]).toMatchObject({ status: "ready" });
-    expect(fixture.patch).toHaveBeenCalledWith({ removeProviders: ["overmind-lead"] });
-    const lead = fixture.getConfig().providers["overmind-lead"] as ProviderOverride;
-    expect(lead).toMatchObject({ extends: "codex", env: { OVERMIND_SOURCE_PROVIDER: "codex" } });
+    expect((await publishProfiles(fixture.api, codexLead))[1]).toMatchObject({
+      status: "ready",
+    });
+    expect(fixture.patch).toHaveBeenCalledWith({
+      removeProviders: ["overmind-lead"],
+    });
+    const lead = fixture.getConfig().providers[
+      "overmind-lead"
+    ] as ProviderOverride;
+    expect(lead).toMatchObject({
+      extends: "codex",
+      env: { OVERMIND_SOURCE_PROVIDER: "codex" },
+    });
     expect(lead.disallowedTools).toBeUndefined();
   });
 
   test("disables the profiles of removed Peer kinds", async () => {
     const values = overmindSettings.schema.parse({
       peer: { provider: "codex", model: "chosen" },
-      peerKinds: [{ id: "scout", purpose: "Scout", provider: "opencode", model: "chosen" }],
+      peerKinds: [
+        {
+          id: "scout",
+          purpose: "Scout",
+          provider: "opencode",
+          model: "chosen",
+        },
+      ],
     });
     expect(values).not.toHaveProperty("peerKinds");
     const fixture = profileApi({
@@ -180,13 +247,15 @@ describe("Overmind control backend", () => {
       "overmind-lead",
       "overmind-peer",
     ]);
-    expect(fixture.getConfig().providers["overmind-peer-old"]).toMatchObject({ enabled: false });
+    expect(fixture.getConfig().providers["overmind-peer-old"]).toMatchObject({
+      enabled: false,
+    });
     // A live seat created from an old kind profile is still a Peer.
     expect(roleForProvider("overmind-peer-old")).toBe("peer");
     expect(profileBinding(values, "overmind-peer-old")).toBeNull();
-    expect((await seatProfiles(fixture.api, values)).map((entry) => entry.provider)).toEqual([
-      "overmind-peer",
-    ]);
+    expect(
+      (await seatProfiles(fixture.api, values)).map((entry) => entry.provider)
+    ).toEqual(["overmind-peer"]);
   });
 
   test("an agy-acp ACP provider backs a Peer but no other role", async () => {
@@ -202,7 +271,10 @@ describe("Overmind control backend", () => {
       },
     });
     const result = await publishProfiles(fixture.api, values);
-    expect(result[1]).toMatchObject({ status: "error", error: "agy-acp chỉ dùng được cho Peer." });
+    expect(result[1]).toMatchObject({
+      status: "error",
+      error: "agy-acp chỉ dùng được cho Peer.",
+    });
     expect(result[2]).toMatchObject({ id: "overmind-peer", status: "ready" });
     expect(fixture.getConfig().providers["overmind-peer"]).toMatchObject({
       extends: "acp",
@@ -213,7 +285,9 @@ describe("Overmind control backend", () => {
   });
 
   test("preserves foreign profiles and rejects plugin inheritance before writing config", async () => {
-    const foreign = profileApi({ "overmind-supervisor": { label: "My provider" } });
+    const foreign = profileApi({
+      "overmind-supervisor": { label: "My provider" },
+    });
     const values = overmindSettings.schema.parse({
       supervisor: { provider: "codex", model: "chosen" },
       lead: { provider: "antigravity", model: "chosen" },
@@ -233,7 +307,9 @@ describe("Overmind control backend", () => {
   test("only accepts explicit Overmind markers or profile IDs", () => {
     expect(isOvermindAgent({}, "overmind-supervisor")).toBe(true);
     expect(isOvermindAgent({}, "codex")).toBe(false);
-    expect(isOvermindAgent({ "overmind.enabled": "false" }, "overmind-peer")).toBe(false);
+    expect(
+      isOvermindAgent({ "overmind.enabled": "false" }, "overmind-peer")
+    ).toBe(false);
   });
 
   test("uses custom regexes and real semantic encoder results after regex fallback", async () => {
@@ -245,18 +321,22 @@ describe("Overmind control backend", () => {
         threshold: 0.9,
       },
     });
-    expect(await detectOutput(values, "This needs human review")).toMatchObject({
-      tier: "hybrid",
-      patterns: ["custom-1"],
-      matched: "This needs human review",
-      confirmed: true,
-    });
+    expect(await detectOutput(values, "This needs human review")).toMatchObject(
+      {
+        tier: "hybrid",
+        patterns: ["custom-1"],
+        matched: "This needs human review",
+        confirmed: true,
+      }
+    );
     expect(await detectOutput(values, "Unresolved blocker")).toMatchObject({
       tier: "semantic",
       score: 1,
     });
     expect(await detectOutput(values, "")).toBeNull();
-    expect(() => overmindSettings.schema.parse({ detection: { extraPatterns: ["("] } })).toThrow();
+    expect(() =>
+      overmindSettings.schema.parse({ detection: { extraPatterns: ["("] } })
+    ).toThrow();
   });
 
   test("takes the latest user exchange and never appends alerts for ordinary agents", async () => {
@@ -266,7 +346,7 @@ describe("Overmind control backend", () => {
         { type: "assistant_message", text: "old answer" },
         { type: "user_message", text: "latest" },
         { type: "assistant_message", text: "but blocked" },
-      ]),
+      ])
     ).toEqual({ objective: "latest", output: "but blocked", verified: false });
     const append = vi.fn();
     const refetch = vi.fn();
@@ -292,7 +372,7 @@ describe("Overmind control backend", () => {
       "turn",
       { kind: "completed" },
       api,
-      overmindSettings.schema.parse({}),
+      overmindSettings.schema.parse({})
     );
     expect(refetch).not.toHaveBeenCalled();
     expect(append).not.toHaveBeenCalled();
@@ -300,7 +380,9 @@ describe("Overmind control backend", () => {
   });
 
   test("ignores a bare 'but', logs rejected candidates and skips the Supervisor", async () => {
-    const directory = await mkdtemp(path.join(tmpdir(), "overmind-detections-"));
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "overmind-detections-")
+    );
     const log = new DetectionLog(path.join(directory, "detections.jsonl"));
     const values = overmindSettings.schema.parse({});
     try {
@@ -313,7 +395,12 @@ describe("Overmind control backend", () => {
       const refetch = vi.fn(async () => ({
         entries: [
           { item: { type: "user_message", text: "check" } },
-          { item: { type: "assistant_message", text: "I'm blocked until the review lands." } },
+          {
+            item: {
+              type: "assistant_message",
+              text: "I'm blocked until the review lands.",
+            },
+          },
         ],
       }));
       const api = {
@@ -353,11 +440,16 @@ describe("Overmind control backend", () => {
       ]);
 
       await monitor.onTurnEnded(
-        { ...peer, id: "sup", provider: "overmind-supervisor", parentAgentId: null },
+        {
+          ...peer,
+          id: "sup",
+          provider: "overmind-supervisor",
+          parentAgentId: null,
+        },
         "t2",
         { kind: "completed" },
         api,
-        values,
+        values
       );
       expect(refetch).toHaveBeenCalledOnce();
       monitor.dispose();
@@ -369,17 +461,30 @@ describe("Overmind control backend", () => {
   test("flags a completion claim from a turn that ran no check", () => {
     const values = overmindSettings.schema.parse({});
     const exchange = (items: unknown[]) =>
-      latestExchange([{ type: "user_message", text: "fix login" }, ...items] as never);
-    const claim = { type: "assistant_message", text: "The login bug is fixed now." };
+      latestExchange([
+        { type: "user_message", text: "fix login" },
+        ...items,
+      ] as never);
+    const claim = {
+      type: "assistant_message",
+      text: "The login bug is fixed now.",
+    };
     expect(detectUnverifiedClaim(values, exchange([claim]))).toMatchObject({
       tier: "structural",
       antiPatterns: ["weak-verification"],
       matched: "The login bug is fixed now.",
     });
-    const check = { type: "tool_call", name: "shell", detail: { command: "npx vitest run" } };
+    const check = {
+      type: "tool_call",
+      name: "shell",
+      detail: { command: "npx vitest run" },
+    };
     expect(detectUnverifiedClaim(values, exchange([check, claim]))).toBeNull();
     expect(
-      detectUnverifiedClaim(values, exchange([{ type: "assistant_message", text: "Looking." }])),
+      detectUnverifiedClaim(
+        values,
+        exchange([{ type: "assistant_message", text: "Looking." }])
+      )
     ).toBeNull();
   });
 
@@ -388,16 +493,31 @@ describe("Overmind control backend", () => {
     const seats = new SeatStore(path.join(directory, "seats.json"));
     const repetition = new RepetitionTracker(seats);
     const sent: { to: string; text: string }[] = [];
-    const agents: Record<string, { provider: string; labels: Record<string, string> }> = {
-      peer: { provider: "overmind-peer", labels: { "paseo.parent-agent-id": "lead" } },
-      lead: { provider: "overmind-lead", labels: { "paseo.parent-agent-id": "sup" } },
+    const agents: Record<
+      string,
+      { provider: string; labels: Record<string, string> }
+    > = {
+      peer: {
+        provider: "overmind-peer",
+        labels: { "paseo.parent-agent-id": "lead" },
+      },
+      lead: {
+        provider: "overmind-lead",
+        labels: { "paseo.parent-agent-id": "sup" },
+      },
       sup: { provider: "overmind-supervisor", labels: {} },
     };
     const api = {
       agents: {
         ref: (id: string) => ({
           refresh: async () => ({
-            agent: { id, title: id, status: "idle", archivedAt: null, ...agents[id] },
+            agent: {
+              id,
+              title: id,
+              status: "idle",
+              archivedAt: null,
+              ...agents[id],
+            },
           }),
           send: async (text: string) => {
             sent.push({ to: id, text });
@@ -406,8 +526,18 @@ describe("Overmind control backend", () => {
             append: vi.fn(),
             refetch: async () => ({
               entries: [
-                { item: { type: "user_message", text: "make the migration pass" } },
-                { item: { type: "assistant_message", text: "Still failing on the same index." } },
+                {
+                  item: {
+                    type: "user_message",
+                    text: "make the migration pass",
+                  },
+                },
+                {
+                  item: {
+                    type: "assistant_message",
+                    text: "Still failing on the same index.",
+                  },
+                },
               ],
             }),
           },
@@ -423,23 +553,41 @@ describe("Overmind control backend", () => {
       title: "Peer",
     };
     const monitor = new DetectionMonitor({ repetition });
-    const values = overmindSettings.schema.parse({ detection: { mode: "regex" } });
+    const values = overmindSettings.schema.parse({
+      detection: { mode: "regex" },
+    });
     try {
       for (const turnId of ["t1", "t2"])
-        await monitor.onTurnEnded(peer, turnId, { kind: "completed" }, api, values);
-      expect(sent.some((entry) => entry.text.includes("OVERMIND REPETITION"))).toBe(false);
+        await monitor.onTurnEnded(
+          peer,
+          turnId,
+          { kind: "completed" },
+          api,
+          values
+        );
+      expect(
+        sent.some((entry) => entry.text.includes("OVERMIND REPETITION"))
+      ).toBe(false);
       await monitor.onTurnEnded(peer, "t3", { kind: "completed" }, api, values);
-      const toLead = sent.find((entry) => entry.to === "lead" && entry.text.includes("ĐỔI HƯỚNG"));
+      const toLead = sent.find(
+        (entry) => entry.to === "lead" && entry.text.includes("ĐỔI HƯỚNG")
+      );
       expect(toLead?.text).toContain("Repeated local patches");
       expect(toLead?.text).toContain("newApproach");
-      expect(sent.some((entry) => entry.to === "sup" && entry.text.includes("THEO DÕI"))).toBe(
-        true,
+      expect(
+        sent.some(
+          (entry) => entry.to === "sup" && entry.text.includes("THEO DÕI")
+        )
+      ).toBe(true);
+      expect((await seats.get("peer"))["overmind.repeat.escalated"]).toBe(
+        "repeated-local-patch"
       );
-      expect((await seats.get("peer"))["overmind.repeat.escalated"]).toBe("repeated-local-patch");
       // The open escalation is not repeated on the next stalled turn.
       sent.length = 0;
       await monitor.onTurnEnded(peer, "t4", { kind: "completed" }, api, values);
-      expect(sent.some((entry) => entry.text.includes("OVERMIND REPETITION"))).toBe(false);
+      expect(
+        sent.some((entry) => entry.text.includes("OVERMIND REPETITION"))
+      ).toBe(false);
       monitor.dispose();
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -457,10 +605,18 @@ describe("Overmind control backend", () => {
       await repetition.observe("lead", "t3", new Map());
       // A turn without the anti-pattern is progress: nothing is tracked any more.
       expect(await seats.get("lead")).toEqual({});
-      for (const turnId of ["t4", "t5"]) await repetition.observe("lead", turnId, stalled);
+      for (const turnId of ["t4", "t5"])
+        await repetition.observe("lead", turnId, stalled);
       const [escalation] = await repetition.observe("lead", "t6", stalled);
-      expect(escalation).toMatchObject({ antiPattern: "loss-of-momentum", count: 3 });
-      expect(escalation!.evidence.map((entry) => entry.turnId)).toEqual(["t4", "t5", "t6"]);
+      expect(escalation).toMatchObject({
+        antiPattern: "loss-of-momentum",
+        count: 3,
+      });
+      expect(escalation!.evidence.map((entry) => entry.turnId)).toEqual([
+        "t4",
+        "t5",
+        "t6",
+      ]);
       await repetition.redirect("lead");
       expect(await seats.get("lead")).toEqual({});
     } finally {
@@ -470,25 +626,33 @@ describe("Overmind control backend", () => {
 
   test("tests Typesafe with synthetic content and reports the resolved model", async () => {
     const bodies: unknown[] = [];
-    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      if (String(url).endsWith("/models"))
-        return Response.json({ models: [{ name: "jev-latest" }] });
-      bodies.push(JSON.parse(String(init?.body)));
-      return Response.json({
-        model: "jev-concrete",
-        answers: {
-          hazard: {
-            type: "choice",
-            choice: "review",
-            confidence: 0.9,
-            probabilities: { normal: 0.05, review: 0.9, insufficient: 0.05 },
+    const fetcher = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).endsWith("/models"))
+          return Response.json({ models: [{ name: "jev-latest" }] });
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json({
+          model: "jev-concrete",
+          answers: {
+            hazard: {
+              type: "choice",
+              choice: "review",
+              confidence: 0.9,
+              probabilities: { normal: 0.05, review: 0.9, insufficient: 0.05 },
+            },
           },
-        },
-      });
-    }) as typeof fetch;
-    const values = overmindSettings.schema.parse({ jev: { apiKey: "test-only" } });
+        });
+      }
+    ) as typeof fetch;
+    const values = overmindSettings.schema.parse({
+      jev: { apiKey: "test-only" },
+    });
     const result = await checkJev(values.jev, fetcher);
-    expect(result).toMatchObject({ ok: true, model: "jev-concrete", models: ["jev-latest"] });
+    expect(result).toMatchObject({
+      ok: true,
+      model: "jev-concrete",
+      models: ["jev-latest"],
+    });
     expect(bodies[0]).toMatchObject({
       questions: { hazard: { type: "choice" } },
       state: { signals: ["synthetic connectivity test"] },
@@ -497,11 +661,15 @@ describe("Overmind control backend", () => {
       await evaluateJev(
         { ...values.jev, minConfidence: 0.95 },
         { objective: "test", output: "test", signals: [] },
-        fetcher,
-      ),
+        fetcher
+      )
     ).toMatchObject({ verdict: "uncertain" });
     expect(
-      await evaluateJev(values.jev, { objective: "test", output: "test", signals: [] }, fetcher),
+      await evaluateJev(
+        values.jev,
+        { objective: "test", output: "test", signals: [] },
+        fetcher
+      )
     ).toMatchObject({ verdict: "review" });
   });
 
@@ -510,7 +678,12 @@ describe("Overmind control backend", () => {
     const refetch = vi.fn(async () => ({
       entries: [
         { item: { type: "user_message", text: "finish task" } },
-        { item: { type: "assistant_message", text: "I'm blocked on the schema migration." } },
+        {
+          item: {
+            type: "assistant_message",
+            text: "I'm blocked on the schema migration.",
+          },
+        },
       ],
     }));
     const api = {
@@ -537,10 +710,17 @@ describe("Overmind control backend", () => {
     expect(append).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "anomaly",
-        data: expect.objectContaining({ agentId: "overmind", tier: "hybrid", jev: null }),
-      }),
+        data: expect.objectContaining({
+          agentId: "overmind",
+          tier: "hybrid",
+          jev: null,
+        }),
+      })
     );
-    expect(monitor.status()).toMatchObject({ lastError: null, alerts: [{ agentId: "overmind" }] });
+    expect(monitor.status()).toMatchObject({
+      lastError: null,
+      alerts: [{ agentId: "overmind" }],
+    });
     monitor.dispose();
   });
 
@@ -550,7 +730,9 @@ describe("Overmind control backend", () => {
     const api = {
       agents: {
         ref: () => ({
-          refresh: async () => ({ agent: { id: "peer", status: "idle", labels: {} } }),
+          refresh: async () => ({
+            agent: { id: "peer", status: "idle", labels: {} },
+          }),
           timeline: {
             append,
             subscribe: vi.fn((handler: (event: unknown) => void) => {
@@ -570,11 +752,19 @@ describe("Overmind control backend", () => {
       title: "Peer",
     };
     const monitor = new DetectionMonitor();
-    await monitor.onTurnStarted(agent, "turn-1", api, overmindSettings.schema.parse({}));
+    await monitor.onTurnStarted(
+      agent,
+      "turn-1",
+      api,
+      overmindSettings.schema.parse({})
+    );
     emit?.({
       event: {
         type: "timeline",
-        item: { type: "reasoning", text: "I am blocked by the missing schema." },
+        item: {
+          type: "reasoning",
+          text: "I am blocked by the missing schema.",
+        },
       },
     });
     await vi.waitUntil(() => monitor.status().alerts.length > 0);
@@ -604,7 +794,12 @@ describe("Overmind control backend", () => {
         refetch: vi.fn(async () => ({
           entries: [
             { item: { type: "user_message", text: "finish task" } },
-            { item: { type: "assistant_message", text: "I'm blocked on the schema migration." } },
+            {
+              item: {
+                type: "assistant_message",
+                text: "I'm blocked on the schema migration.",
+              },
+            },
           ],
         })),
         append,
@@ -645,7 +840,9 @@ describe("Overmind control backend", () => {
             },
           ],
         })),
-        ref: vi.fn((agent: string) => (agent === "lead" ? sourceRef : supervisorRef)),
+        ref: vi.fn((agent: string) =>
+          agent === "lead" ? sourceRef : supervisorRef
+        ),
       },
     } as unknown as PaseoApi;
     const source: PluginHookAgent = {
@@ -667,7 +864,13 @@ describe("Overmind control backend", () => {
     const monitor = new DetectionMonitor();
     const values = overmindSettings.schema.parse({});
 
-    await monitor.onTurnEnded(source, "lead-turn", { kind: "completed" }, api, values);
+    await monitor.onTurnEnded(
+      source,
+      "lead-turn",
+      { kind: "completed" },
+      api,
+      values
+    );
     expect(send).not.toHaveBeenCalled();
     expect(monitor.status().alerts[0]).toMatchObject({
       supervisorDelivery: { status: "queued", agentId: "supervisor" },
@@ -676,12 +879,21 @@ describe("Overmind control backend", () => {
 
     await monitor.onTurnStarted(supervisor, "supervisor-turn", api, values);
     supervisorStatus = "idle";
-    await monitor.onTurnEnded(supervisor, "supervisor-turn", { kind: "completed" }, api, values);
+    await monitor.onTurnEnded(
+      supervisor,
+      "supervisor-turn",
+      { kind: "completed" },
+      api,
+      values
+    );
 
     expect(send).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledWith(expect.stringContaining("[OVERMIND ANOMALY]"), {
-      sourceAgentId: "lead",
-    });
+    expect(send).toHaveBeenCalledWith(
+      expect.stringContaining("[OVERMIND ANOMALY]"),
+      {
+        sourceAgentId: "lead",
+      }
+    );
     expect(send.mock.calls[0]?.[1]).not.toHaveProperty("activeTurnBehavior");
     expect(monitor.status().alerts[0]).toMatchObject({
       supervisorDelivery: { status: "sent", agentId: "supervisor" },
@@ -690,11 +902,97 @@ describe("Overmind control backend", () => {
     monitor.dispose();
   });
 
+  test("delivers a confirmed Peer alert to both its Lead and ancestor Supervisor", async () => {
+    const append = vi.fn();
+    const recipients = new Map([
+      [
+        "peer",
+        {
+          id: "peer",
+          provider: "overmind-peer",
+          status: "idle",
+          labels: { "paseo.parent-agent-id": "lead" },
+          archivedAt: null,
+        },
+      ],
+      [
+        "lead",
+        {
+          id: "lead",
+          provider: "overmind-lead",
+          status: "idle",
+          labels: { "paseo.parent-agent-id": "sup" },
+          archivedAt: null,
+        },
+      ],
+      [
+        "sup",
+        {
+          id: "sup",
+          provider: "overmind-supervisor",
+          status: "idle",
+          labels: {},
+          archivedAt: null,
+        },
+      ],
+    ]);
+    const sends: string[] = [];
+    const api = {
+      agents: {
+        ref: (id: string) => ({
+          refresh: async () => ({ agent: recipients.get(id) }),
+          send: async () => sends.push(id),
+          timeline: {
+            refetch: async () => ({
+              entries: [
+                { item: { type: "user_message", text: "fix the blocker" } },
+                {
+                  item: {
+                    type: "assistant_message",
+                    text: "I am blocked until the schema migration.",
+                  },
+                },
+              ],
+            }),
+            append,
+          },
+        }),
+      },
+    } as unknown as PaseoApi;
+    const monitor = new DetectionMonitor();
+    const values = overmindSettings.schema.parse({
+      detection: { mode: "regex" },
+    });
+    await monitor.onTurnEnded(
+      {
+        id: "peer",
+        provider: "overmind-peer",
+        cwd: ".",
+        workspaceId: "ws",
+        parentAgentId: "lead",
+        title: "Peer",
+      },
+      "peer-turn",
+      { kind: "completed" },
+      api,
+      values
+    );
+    expect(sends).toEqual(["lead", "sup"]);
+    expect(monitor.status().alerts[0]).toMatchObject({
+      supervisorDelivery: { status: "sent", agentId: "sup" },
+      supervisorNotified: true,
+    });
+    monitor.dispose();
+  });
+
   test("surfaces failed credentials without echoing the key", async () => {
-    const values = overmindSettings.schema.parse({ jev: { apiKey: "secret-test-only" } });
+    const values = overmindSettings.schema.parse({
+      jev: { apiKey: "secret-test-only" },
+    });
     const result = await checkJev(
       values.jev,
-      (async () => new Response("Unauthorized", { status: 401 })) as typeof fetch,
+      (async () =>
+        new Response("Unauthorized", { status: 401 })) as typeof fetch
     );
     expect(result.ok).toBe(false);
     expect(result.message).toContain("HTTP 401");
@@ -724,15 +1022,22 @@ describe("Overmind control backend", () => {
     const env = vi
       .spyOn(DriverRegistry.getAdapter("codex"), "buildSpawnEnv")
       .mockResolvedValue({ CODEX_HOME: "role-home" });
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "overmind-state-"));
+    const stateDirectory = await mkdtemp(
+      path.join(tmpdir(), "overmind-state-")
+    );
     const cleanup = createContribution({ stateDirectory })(server);
     try {
       const fixture = profileApi();
-      const context = { paseo: fixture.api, signal: new AbortController().signal };
-      const create = before.mock.calls.find(([name]) => name === "agent.create")?.[1];
+      const context = {
+        paseo: fixture.api,
+        signal: new AbortController().signal,
+      };
+      const create = before.mock.calls.find(
+        ([name]) => name === "agent.create"
+      )?.[1];
       const request = await create(
         { request: { config: { provider: "overmind-supervisor", cwd: "." } } },
-        context,
+        context
       );
       expect(request.config).toMatchObject({
         model: "chosen",
@@ -740,27 +1045,39 @@ describe("Overmind control backend", () => {
         modeId: "full-access",
         featureValues: { overmindRole: "supervisor", overmindDriver: "codex" },
         mcpServers: {
-          overmind: { type: "http", url: expect.stringMatching(/\/overmind\/[0-9a-f-]+$/) },
-          overmind_notebook: { type: "http", url: expect.stringMatching(/\/notebook\//) },
+          overmind: {
+            type: "http",
+            url: expect.stringMatching(/\/overmind\/[0-9a-f-]+$/),
+          },
+          overmind_notebook: {
+            type: "http",
+            url: expect.stringMatching(/\/notebook\//),
+          },
         },
         toolPolicy: {
           preapproved: expect.arrayContaining([
             { kind: "mcp", server: "overmind", tool: "create_agent" },
             { kind: "mcp", server: "overmind", tool: "create_supervisor_wake" },
             { kind: "mcp", server: "overmind", tool: "overmind_task_review" },
-            { kind: "mcp", server: "overmind_notebook", tool: "causal_notebook_write" },
+            {
+              kind: "mcp",
+              server: "overmind_notebook",
+              tool: "causal_notebook_write",
+            },
           ]),
         },
       });
       // Every preapproved server ships in the same request, as the daemon requires.
       for (const grant of request.config.toolPolicy.preapproved)
         expect(request.config.mcpServers).toHaveProperty(grant.server);
-      expect(request.config.toolPolicy.preapproved.map((grant) => grant.tool)).not.toContain(
-        "contract_lock",
-      );
+      expect(
+        request.config.toolPolicy.preapproved.map((grant) => grant.tool)
+      ).not.toContain("contract_lock");
       expect(request.env.OVERMIND_CAPABILITY_ID).toEqual(expect.any(String));
 
-      const open = before.mock.calls.find(([name]) => name === "agent.session_open")?.[1];
+      const open = before.mock.calls.find(
+        ([name]) => name === "agent.session_open"
+      )?.[1];
       const launch = await open(
         {
           request: {
@@ -771,7 +1088,7 @@ describe("Overmind control backend", () => {
             reason: "create",
           },
         },
-        context,
+        context
       );
       expect(launch.env).toMatchObject({
         CODEX_HOME: "role-home",
@@ -790,7 +1107,7 @@ describe("Overmind control backend", () => {
             mcpServers: {},
           },
         },
-        context,
+        context
       );
       expect(nativeLaunch.mcpServers.overmind_wake).toMatchObject({
         type: "http",
@@ -822,12 +1139,15 @@ describe("Overmind control backend", () => {
             mcpServers: {},
           },
         },
-        context,
+        context
       );
       expect(leadLaunch.mcpServers).toEqual({});
 
       await expect(
-        create({ request: { config: { provider: "overmind-lead", cwd: "." } } }, context),
+        create(
+          { request: { config: { provider: "overmind-lead", cwd: "." } } },
+          context
+        )
       ).rejects.toThrow("OVERMIND_ROLE_DENIED");
     } finally {
       await cleanup();
@@ -858,15 +1178,22 @@ describe("Overmind control backend", () => {
     const env = vi
       .spyOn(DriverRegistry.getAdapter("codex"), "buildSpawnEnv")
       .mockResolvedValue({ CODEX_HOME: "role-home" });
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "overmind-state-"));
-    const context = { paseo: profileApi().api, signal: new AbortController().signal };
+    const stateDirectory = await mkdtemp(
+      path.join(tmpdir(), "overmind-state-")
+    );
+    const context = {
+      paseo: profileApi().api,
+      signal: new AbortController().signal,
+    };
     try {
       const first = contribution();
       const cleanupFirst = createContribution({ stateDirectory })(first.server);
-      const create = first.before.mock.calls.find(([name]) => name === "agent.create")![1];
+      const create = first.before.mock.calls.find(
+        ([name]) => name === "agent.create"
+      )![1];
       const request = await create(
         { request: { config: { provider: "overmind-supervisor", cwd: "." } } },
-        context,
+        context
       );
       const url = request.config.mcpServers.overmind.url as string;
       expect((await fetch(url)).status).toBe(403);
@@ -874,10 +1201,12 @@ describe("Overmind control backend", () => {
       await expect(fetch(url)).rejects.toThrow();
 
       const second = contribution();
-      const cleanupSecond = createContribution({ stateDirectory })(second.server);
+      const cleanupSecond = createContribution({ stateDirectory })(
+        second.server
+      );
       try {
         const readLabels = second.handle.mock.calls.find(
-          ([contract]) => contract.name === "seat.labels",
+          ([contract]) => contract.name === "seat.labels"
         )![1];
         await readLabels({ agentIds: ["supervisor"] }, context);
         await vi.waitUntil(() => listening(url));
@@ -903,9 +1232,13 @@ describe("Overmind control backend", () => {
       on,
       handle,
     } as unknown as PluginServerContext;
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "overmind-state-"));
+    const stateDirectory = await mkdtemp(
+      path.join(tmpdir(), "overmind-state-")
+    );
     const cleanup = createContribution({ stateDirectory })(server);
-    const directory = await mkdtemp(path.join(tmpdir(), "overmind-notebook-owner-"));
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "overmind-notebook-owner-")
+    );
     try {
       await new CausalNotebook(directory, stateDirectory).write(
         { provider: "overmind-supervisor", agentId: "supervisor" },
@@ -918,13 +1251,19 @@ describe("Overmind control backend", () => {
           impact: "Progress blocked",
           recommendation: "Verify provider availability",
           protocol_candidate: false,
-        },
+        }
       );
       const paseo = {
-        workspaces: { ref: () => ({ refresh: async () => ({ projectRootPath: directory }) }) },
+        workspaces: {
+          ref: () => ({
+            refresh: async () => ({ projectRootPath: directory }),
+          }),
+        },
         projects: {
           list: async () => ({
-            projects: [{ projectDisplayName: "Repo", projectRootPath: directory }],
+            projects: [
+              { projectDisplayName: "Repo", projectRootPath: directory },
+            ],
           }),
         },
         agents: {
@@ -939,7 +1278,7 @@ describe("Overmind control backend", () => {
         },
       } as unknown as PaseoApi;
       const readHistory = handle.mock.calls.find(
-        ([contract]) => contract.name === "project.history",
+        ([contract]) => contract.name === "project.history"
       )![1];
       expect(await readHistory({}, { paseo })).toMatchObject({
         errors: [],
@@ -972,14 +1311,18 @@ describe("Overmind control backend", () => {
         archivedAt: "2026-10-29T00:00:00.000Z",
         labels: { "paseo.parent-agent-id": "sup" },
       };
-      const archive = on.mock.calls.find(([event]) => event === "agent.archived")![1];
+      const archive = on.mock.calls.find(
+        ([event]) => event === "agent.archived"
+      )![1];
       const archiveHost = {
         ...paseo,
-        agents: { ref: () => ({ refresh: async () => ({ agent: archivedLead }) }) },
+        agents: {
+          ref: () => ({ refresh: async () => ({ agent: archivedLead }) }),
+        },
       } as unknown as PaseoApi;
       await archive(
         { agent: { ...archivedLead, cwd: ".", parentAgentId: "sup" } },
-        { paseo: archiveHost },
+        { paseo: archiveHost }
       );
       const [project] = (await readHistory({}, { paseo })).projects;
       expect(project.tasks).toMatchObject([
@@ -999,19 +1342,31 @@ describe("Overmind control backend", () => {
         parentAgentId: null,
         title: "Lead",
       };
-      const started = on.mock.calls.find(([event]) => event === "agent.turn_started")![1];
-      const ended = on.mock.calls.find(([event]) => event === "agent.turn_ended")![1];
-      const readSeats = handle.mock.calls.find(([contract]) => contract.name === "seat.labels")![1];
-      const seat = async () => (await readSeats({ agentIds: ["lead"] }, { paseo })).seats.lead;
+      const started = on.mock.calls.find(
+        ([event]) => event === "agent.turn_started"
+      )![1];
+      const ended = on.mock.calls.find(
+        ([event]) => event === "agent.turn_ended"
+      )![1];
+      const readSeats = handle.mock.calls.find(
+        ([contract]) => contract.name === "seat.labels"
+      )![1];
+      const seat = async () =>
+        (await readSeats({ agentIds: ["lead"] }, { paseo })).seats.lead;
       started({ agent, turnId: "t1" }, { paseo });
-      await vi.waitUntil(async () => (await seat())?.["overmind.status"] === "THINKING");
+      await vi.waitUntil(
+        async () => (await seat())?.["overmind.status"] === "THINKING"
+      );
       expect(await seat()).toEqual({
         "overmind.status": "THINKING",
         "overmind.task.status": "IN_PROGRESS",
         "overmind.turn.id": "t1",
         "overmind.turn.outcome": "running",
       });
-      await ended({ agent, turnId: "t1", outcome: { kind: "completed" } }, { paseo });
+      await ended(
+        { agent, turnId: "t1", outcome: { kind: "completed" } },
+        { paseo }
+      );
       expect(await seat()).toEqual({
         "overmind.status": "IDLE",
         "overmind.task.status": "READY_FOR_REVIEW",
@@ -1026,7 +1381,7 @@ describe("Overmind control backend", () => {
           turnId: "t2",
           outcome: { kind: "failed", error: { message: "Validation failed" } },
         },
-        { paseo },
+        { paseo }
       );
       expect(await seat()).toMatchObject({
         "overmind.turn.id": "t2",
@@ -1036,7 +1391,9 @@ describe("Overmind control backend", () => {
 
       // A turn that ends while the plugin is reloading leaves the seat THINKING.
       started({ agent, turnId: "t3" }, { paseo });
-      await vi.waitUntil(async () => (await seat())?.["overmind.turn.id"] === "t3");
+      await vi.waitUntil(
+        async () => (await seat())?.["overmind.turn.id"] === "t3"
+      );
       const handleAfterReload = vi.fn();
       const reloaded = createContribution({ stateDirectory })({
         ...server,
@@ -1060,18 +1417,26 @@ describe("Overmind control backend", () => {
             refresh: async () => ({ agent: idleLead }),
             timeline: {
               refetch: async () => ({
-                entries: [{ turnId: "t3", item: { type: "assistant_message", text: "Done" } }],
+                entries: [
+                  {
+                    turnId: "t3",
+                    item: { type: "assistant_message", text: "Done" },
+                  },
+                ],
               }),
             },
           }),
         },
       } as unknown as PaseoApi;
       const readAfterReload = handleAfterReload.mock.calls.find(
-        ([contract]) => contract.name === "seat.labels",
+        ([contract]) => contract.name === "seat.labels"
       )![1];
       const reloadedSeat = async () =>
-        (await readAfterReload({ agentIds: ["lead"] }, { paseo: host })).seats.lead;
-      await vi.waitUntil(async () => (await reloadedSeat())?.["overmind.status"] === "IDLE");
+        (await readAfterReload({ agentIds: ["lead"] }, { paseo: host })).seats
+          .lead;
+      await vi.waitUntil(
+        async () => (await reloadedSeat())?.["overmind.status"] === "IDLE"
+      );
       expect(await reloadedSeat()).toMatchObject({
         "overmind.task.status": "READY_FOR_REVIEW",
         "overmind.turn.id": "t3",

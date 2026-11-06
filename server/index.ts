@@ -57,11 +57,20 @@ import {
   NOTEBOOK_SERVER,
   SUPERVISOR_WAKE_SERVER,
 } from "./capabilities.js";
-import { COORDINATION_TOOLS, Coordinator, toolsForRole } from "./coordination.js";
+import {
+  COORDINATION_TOOLS,
+  Coordinator,
+  toolsForRole,
+} from "./coordination.js";
 import { CausalNotebook, NOTEBOOK_TOOLS } from "./modules/causal_notebook.js";
 import { captureNotebookAlert } from "./notebook-capture.js";
 import { OVERMIND_EVENT_ALERT } from "./hybrid_sensor.js";
-import { CREATION_TICKET_ENV, CreationTickets, loadSeat, type Seat } from "./policy.js";
+import {
+  CREATION_TICKET_ENV,
+  CreationTickets,
+  loadSeat,
+  type Seat,
+} from "./policy.js";
 import { Relay } from "./relay.js";
 import { projectRoot, readTasks, recordTask } from "./project-history.js";
 import { REVIEW_STATUSES } from "./review.js";
@@ -75,7 +84,9 @@ function assertRoleIdentity(config: Parameters<typeof readRole>[0]): void {
   const aliasRole = roleForProvider(config.provider);
   const persisted = config.featureValues?.overmindRole;
   if (aliasRole && persisted && persisted !== aliasRole)
-    throw new Error("OVERMIND_ROLE_DENIED: provider and requested role disagree");
+    throw new Error(
+      "OVERMIND_ROLE_DENIED: provider and requested role disagree"
+    );
 }
 function readRole(config: {
   provider: string;
@@ -86,15 +97,21 @@ function readRole(config: {
     roleForProvider(config.provider) ??
     config.providerOptions?.[ROLE_KEY] ??
     config.featureValues?.[ROLE_KEY];
-  return value === "supervisor" || value === "lead" || value === "peer" ? value : null;
+  return value === "supervisor" || value === "lead" || value === "peer"
+    ? value
+    : null;
 }
-function readRoleFromEnv(env: Record<string, string> | undefined): OvermindRole | null {
+function readRoleFromEnv(
+  env: Record<string, string> | undefined
+): OvermindRole | null {
   const value = env?.OVERMIND_ROLE;
-  return value === "supervisor" || value === "lead" || value === "peer" ? value : null;
+  return value === "supervisor" || value === "lead" || value === "peer"
+    ? value
+    : null;
 }
 function roleHomeOptions(
   env: Record<string, string> | undefined,
-  featureValues?: Record<string, unknown>,
+  featureValues?: Record<string, unknown>
 ): { homeDirectory?: string } {
   const featureHome = featureValues?.overmindHomeRoot;
   if (typeof featureHome === "string") return { homeDirectory: featureHome };
@@ -116,7 +133,11 @@ function coordinationToolPolicy(role: OvermindRole, driver: string) {
           tool,
         })),
         ...(role === "supervisor"
-          ? NOTEBOOK_TOOLS.map((tool) => ({ kind: "mcp" as const, server: NOTEBOOK_SERVER, tool }))
+          ? NOTEBOOK_TOOLS.map((tool) => ({
+              kind: "mcp" as const,
+              server: NOTEBOOK_SERVER,
+              tool,
+            }))
           : []),
       ],
     },
@@ -136,18 +157,25 @@ export interface OvermindServerOptions {
   stateDirectory?: string;
 }
 
-export function createContribution(options: OvermindServerOptions = {}): PluginServerContribution {
+export function createContribution(
+  options: OvermindServerOptions = {}
+): PluginServerContribution {
   return (server: PluginServerContext) => {
-    const stateDirectory = options.stateDirectory ?? join(homedir(), ".overmind", "paseo-plugin");
+    const stateDirectory =
+      options.stateDirectory ?? join(homedir(), ".overmind", "paseo-plugin");
     const settings = server.registerSettings(overmindSettings);
     const runtime = new OvermindRuntime({ skillMatrix: DEFAULT_ROLE_SKILLS });
     const seats = new SeatStore(join(stateDirectory, "seats.json"));
     const relay = new Relay(seats, join(stateDirectory, "relay.json"));
     const tickets = new CreationTickets();
-    const detectionLog = new DetectionLog(join(stateDirectory, "detections.jsonl"));
+    const detectionLog = new DetectionLog(
+      join(stateDirectory, "detections.jsonl")
+    );
     const repetition = new RepetitionTracker(seats);
     const monitor = new DetectionMonitor({ log: detectionLog, repetition });
-    monitor.on(OVERMIND_EVENT_ALERT, (...args) => captureNotebookAlert(...args, stateDirectory));
+    monitor.on(OVERMIND_EVENT_ALERT, (...args) =>
+      captureNotebookAlert(...args, stateDirectory)
+    );
     let disposed = false;
     let capabilities: Promise<CapabilityService> | undefined;
     function capabilityService(paseo: PaseoApi): Promise<CapabilityService> {
@@ -163,7 +191,7 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
           repetition,
           intents: new IntentStore(join(stateDirectory, "intent.json")),
           profiles: async () => seatProfiles(paseo, await currentSettings()),
-        }),
+        })
       );
       void capabilities.catch(() => {
         capabilities = undefined;
@@ -173,19 +201,25 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
     /** Lead and Peer creation spends a ticket issued for an authorized parent. */
     function consumeCreationTicket(
       role: OvermindRole | null,
-      requested: Record<string, string> | undefined,
+      requested: Record<string, string> | undefined
     ): Record<string, string> {
       const env = { ...requested };
       const ticket = env[CREATION_TICKET_ENV];
       delete env[CREATION_TICKET_ENV];
-      if ((role === "lead" || role === "peer") && !tickets.consume(ticket, role))
+      if (
+        (role === "lead" || role === "peer") &&
+        !tickets.consume(ticket, role)
+      )
         throw new Error(
-          "OVERMIND_ROLE_DENIED: create Leads with the Supervisor's Overmind tools and Peers with their Lead's",
+          "OVERMIND_ROLE_DENIED: create Leads with the Supervisor's Overmind tools and Peers with their Lead's"
         );
       return env;
     }
     /** Keep a Lead or Peer task in its project, where it outlives the agent. */
-    async function recordSeatTask(paseo: PaseoApi, agentId: string): Promise<void> {
+    async function recordSeatTask(
+      paseo: PaseoApi,
+      agentId: string
+    ): Promise<void> {
       const agent = (await paseo.agents.ref(agentId).refresh())?.agent;
       const role = agent ? roleForProvider(agent.provider) : null;
       if (!agent?.workspaceId || (role !== "lead" && role !== "peer")) return;
@@ -213,7 +247,7 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         turnId: string | null;
         outcome: string;
       },
-      before?: () => Promise<void>,
+      before?: () => Promise<void>
     ) {
       if (!roleForProvider(agent.provider)) return Promise.resolve();
       const write = (seatWrites.get(agent.id) ?? Promise.resolve())
@@ -222,7 +256,8 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
           await before?.();
           const current = (await paseo.agents.ref(agent.id).refresh())?.agent;
           // A newer turn owns the seat; this event is stale.
-          if (current?.activeTurn && current.activeTurn.turnId !== state.turnId) return undefined;
+          if (current?.activeTurn && current.activeTurn.turnId !== state.turnId)
+            return undefined;
           await seats.merge(agent.id, {
             "overmind.status": state.status,
             "overmind.task.status": state.task,
@@ -232,7 +267,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
             "overmind.mailbox_count":
               state.outcome === "running"
                 ? ""
-                : String(monitor.pendingNotices(agent.id) + relay.pending(agent.id)),
+                : String(
+                    monitor.pendingNotices(agent.id) + relay.pending(agent.id)
+                  ),
           });
           await recordSeatTask(paseo, agent.id);
           return undefined;
@@ -248,7 +285,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
     async function configuredBinding(provider: string, role: OvermindRole) {
       const binding = profileBinding(await currentSettings(), provider);
       if (!binding?.provider || !binding.model)
-        throw new Error(`Chưa cấu hình đầy đủ Overmind ${role}. Mở Overmind Command → Settings.`);
+        throw new Error(
+          `Chưa cấu hình đầy đủ Overmind ${role}. Mở Overmind Command → Settings.`
+        );
       return binding;
     }
     async function currentSettings() {
@@ -279,6 +318,7 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
       reconciled ??= Promise.all([
         capabilityService(paseo),
         relay.reconcile(paseo),
+        relay.reconcilePeerQuestions(paseo),
         reconcileSeats(paseo),
       ])
         .then(() => undefined)
@@ -313,7 +353,7 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
             task: "READY_FOR_REVIEW",
             turnId: tail.entries.at(-1)?.turnId ?? null,
             outcome: "completed",
-          },
+          }
         );
       }
     }
@@ -321,33 +361,43 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
       reconcileOnce(paseo);
       return { seats: await seats.getMany(agentIds) };
     });
-    server.handle(readImage, async ({ path }) => ({ dataUri: await imageDataUri(path) }));
-    server.handle(reviewTask, async ({ agentId, turnId, decision, evidence }, { paseo }) => {
-      await seatWrites.get(agentId);
-      const target: Seat | null = await loadSeat(paseo, seats, agentId);
-      if (!target || target.archivedAt || !target.role || reviewableTurn(target) !== turnId)
-        throw new Error(
-          "Task changed or its turn is still running. Refresh and review the completed turn again.",
-        );
-      const labels = {
-        "overmind.task.status": REVIEW_STATUSES.get(decision)!,
-        "overmind.review.turn_id": turnId,
-        "overmind.review.message_at": target.lastUserMessageAt ?? "",
-        "overmind.review.decision": decision,
-        "overmind.review.evidence": evidence.trim(),
-        "overmind.review.at": new Date().toISOString(),
-        "overmind.review.reviewer_kind": "human",
-        "overmind.review.reviewer_id": "",
-        "overmind.review.agreement_id": "",
-        "overmind.review.scope": "",
-        "overmind.review.checks": "",
-        "overmind.review.requested_change": "",
-        "overmind.review.human_context": "",
-      };
-      await seats.merge(agentId, labels);
-      await recordSeatTask(paseo, agentId).catch(() => undefined);
-      return { agentId, labels };
-    });
+    server.handle(readImage, async ({ path }) => ({
+      dataUri: await imageDataUri(path),
+    }));
+    server.handle(
+      reviewTask,
+      async ({ agentId, turnId, decision, evidence }, { paseo }) => {
+        await seatWrites.get(agentId);
+        const target: Seat | null = await loadSeat(paseo, seats, agentId);
+        if (
+          !target ||
+          target.archivedAt ||
+          !target.role ||
+          reviewableTurn(target) !== turnId
+        )
+          throw new Error(
+            "Task changed or its turn is still running. Refresh and review the completed turn again."
+          );
+        const labels = {
+          "overmind.task.status": REVIEW_STATUSES.get(decision)!,
+          "overmind.review.turn_id": turnId,
+          "overmind.review.message_at": target.lastUserMessageAt ?? "",
+          "overmind.review.decision": decision,
+          "overmind.review.evidence": evidence.trim(),
+          "overmind.review.at": new Date().toISOString(),
+          "overmind.review.reviewer_kind": "human",
+          "overmind.review.reviewer_id": "",
+          "overmind.review.agreement_id": "",
+          "overmind.review.scope": "",
+          "overmind.review.checks": "",
+          "overmind.review.requested_change": "",
+          "overmind.review.human_context": "",
+        };
+        await seats.merge(agentId, labels);
+        await recordSeatTask(paseo, agentId).catch(() => undefined);
+        return { agentId, labels };
+      }
+    );
     server.handle(controlStatus, async (_input, { paseo }) => {
       reconcileOnce(paseo);
       const values = await currentSettings();
@@ -393,7 +443,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
                 protocolCandidate: entry.protocol_candidate,
                 evidenceCount: entry.evidence.length,
               }))
-              .sort((left, right) => right.timestamp.localeCompare(left.timestamp)),
+              .sort((left, right) =>
+                right.timestamp.localeCompare(left.timestamp)
+              ),
           });
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
@@ -407,7 +459,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
       await configureEmbeddingRuntime(paseo);
       return checkEmbedding(input);
     });
-    server.handle(embeddingModels, async ({ baseUrl }) => listEmbeddingModels(baseUrl));
+    server.handle(embeddingModels, async ({ baseUrl }) =>
+      listEmbeddingModels(baseUrl)
+    );
     const cleanups = [
       settings.subscribe((state) => {
         if (state.status === "ready") prepareModel(state.values);
@@ -418,7 +472,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         const aliasRole = roleForProvider(request.config.provider);
         assertRoleIdentity(request.config);
         const env = consumeCreationTicket(aliasRole, request.env);
-        const binding = aliasRole ? await configuredBinding(request.config.provider, role) : null;
+        const binding = aliasRole
+          ? await configuredBinding(request.config.provider, role)
+          : null;
         const source = binding?.provider ?? request.config.provider;
         const driver = await resolveDriver(paseo, source);
         const roleEnv = await adapterForProvider(driver).buildSpawnEnv(role, {
@@ -438,7 +494,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
           env: {
             ...env,
             ...roleEnv,
-            ...(prepared.capabilityId ? { [CAPABILITY_ENV]: prepared.capabilityId } : {}),
+            ...(prepared.capabilityId
+              ? { [CAPABILITY_ENV]: prepared.capabilityId }
+              : {}),
           },
           config: {
             ...request.config,
@@ -447,11 +505,15 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
                   model: binding.model,
                   // An effort the creator asked for outranks the profile default.
                   thinkingOptionId:
-                    request.config.thinkingOptionId || binding.thinkingOptionId || undefined,
+                    request.config.thinkingOptionId ||
+                    binding.thinkingOptionId ||
+                    undefined,
                   ...(binding.modeId ? { modeId: binding.modeId } : {}),
                 }
               : {}),
-            providerOptions: Object.keys(providerOptions).length ? providerOptions : undefined,
+            providerOptions: Object.keys(providerOptions).length
+              ? providerOptions
+              : undefined,
             mcpServers: prepared.mcpServers,
             ...(aliasRole ? coordinationToolPolicy(role, driver) : {}),
             featureValues: {
@@ -470,21 +532,30 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
         };
       }),
       server.before("agent.session_open", async ({ request }, { paseo }) => {
+        // A resumed idle session is often the first event after reload; use it
+        // to recover pending Peer questions before rebuilding its environment.
+        reconcileOnce(paseo);
         const aliasRole = roleForProvider(request.provider);
         const role = aliasRole ?? readRoleFromEnv(request.env);
         if (!role) return request;
         // A removed Peer kind's profile still resolves through its `extends`.
         const source = aliasRole
-          ? (profileBinding(await currentSettings(), request.provider)?.provider ??
-            request.provider)
+          ? profileBinding(await currentSettings(), request.provider)
+              ?.provider ?? request.provider
           : request.provider;
         const driver = await resolveDriver(paseo, source);
         const capability = request.env[CAPABILITY_ENV];
         // Resumed seats reach the persisted endpoint, so it must listen before they run.
-        const service = aliasRole === "peer" || !aliasRole ? null : await capabilityService(paseo);
+        const service =
+          aliasRole === "peer" || !aliasRole
+            ? null
+            : await capabilityService(paseo);
         // A new seat binds its grant once; a resumed seat keeps the persisted binding.
         if (service && capability)
-          await service.bind(capability, { provider: request.provider, agentId: request.agentId });
+          await service.bind(capability, {
+            provider: request.provider,
+            agentId: request.agentId,
+          });
         // COMPAT(supervisorWakeMcp): 0.14 supplies mcpServers here; 0.13.2 uses the grant on new seats.
         // Remove when the plugin's minimum Paseo version reaches 0.14 (after 2027-02-04).
         const mcpServers =
@@ -495,7 +566,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
           request.mcpServers !== null
             ? {
                 ...request.mcpServers,
-                [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(request.agentId),
+                [SUPERVISOR_WAKE_SERVER]: service.supervisorWakeServer(
+                  request.agentId
+                ),
               }
             : undefined;
         const wake = mcpServers?.[SUPERVISOR_WAKE_SERVER];
@@ -513,7 +586,9 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
                       http_headers: wake.headers,
                       enabled_tools: ["create_supervisor_wake"],
                       default_tools_approval_mode: "prompt",
-                      tools: { create_supervisor_wake: { approval_mode: "approve" } },
+                      tools: {
+                        create_supervisor_wake: { approval_mode: "approve" },
+                      },
                     },
                   },
                 },
@@ -543,21 +618,52 @@ export function createContribution(options: OvermindServerOptions = {}): PluginS
           .then((values) => monitor.onTurnStarted(agent, turnId, paseo, values))
           .catch(() => undefined);
       }),
-      server.on("agent.turn_ended", async ({ agent, turnId, outcome }, { paseo }) => {
-        runtime.endTurn(agent.id);
-        await writeSeat(
-          paseo,
-          agent,
-          {
-            status: "IDLE",
-            turnId,
-            outcome: outcome.kind,
-            // A failed or canceled turn leaves the seat's work unfinished.
-            task: outcome.kind === "completed" ? "READY_FOR_REVIEW" : "IN_PROGRESS",
-          },
-          async () => monitor.onTurnEnded(agent, turnId, outcome, paseo, await currentSettings()),
-        );
-        await relay.onTurnEnded(paseo, agent, outcome).catch(() => undefined);
+      server.on(
+        "agent.turn_ended",
+        async ({ agent, turnId, outcome }, { paseo }) => {
+          runtime.endTurn(agent.id);
+          await writeSeat(
+            paseo,
+            agent,
+            {
+              status: "IDLE",
+              turnId,
+              outcome: outcome.kind,
+              // A failed or canceled turn leaves the seat's work unfinished.
+              task:
+                outcome.kind === "completed"
+                  ? "READY_FOR_REVIEW"
+                  : "IN_PROGRESS",
+            },
+            async () =>
+              monitor.onTurnEnded(
+                agent,
+                turnId,
+                outcome,
+                paseo,
+                await currentSettings()
+              )
+          );
+          await relay.onTurnEnded(paseo, agent, outcome).catch(() => undefined);
+        }
+      ),
+      server.on(
+        "agent.permission_requested",
+        async ({ agent, request }, { paseo }) => {
+          if (
+            roleForProvider(agent.provider) !== "peer" ||
+            request.kind !== "question"
+          )
+            return;
+          const leadId = agent.parentAgentId;
+          if (!leadId) return;
+          await relay
+            .notifyPeerQuestion(paseo, agent.id, leadId, request)
+            .catch(() => undefined);
+        }
+      ),
+      server.on("agent.permission_resolved", ({ agent, requestId }) => {
+        relay.clearPeerQuestion(agent.id, requestId);
       }),
       server.on("agent.archived", async ({ agent }, { paseo }) => {
         await seatWrites.get(agent.id);

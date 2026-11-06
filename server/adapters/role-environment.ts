@@ -1,9 +1,21 @@
-import { access, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parse, stringify, type TomlTable, type TomlValue } from "smol-toml";
-import type { DriverRole, RoleEnvironment, RoleEnvironmentOptions } from "./interface.js";
+import type {
+  DriverRole,
+  RoleEnvironment,
+  RoleEnvironmentOptions,
+} from "./interface.js";
 import { SkillFilteringEngine } from "../../shared/modules/skills_engine.js";
 import { promptForRole } from "../../shared/prompts/index.js";
 
@@ -23,7 +35,8 @@ const ROLE_NAMES = new Set<DriverRole>(["supervisor", "lead", "peer"]);
 const ROLE_MCP_SERVERS = new Set(["codegraph", "node_repl"]);
 
 function assertRole(role: DriverRole): void {
-  if (!ROLE_NAMES.has(role)) throw new RangeError(`Unsupported Overmind role: ${String(role)}`);
+  if (!ROLE_NAMES.has(role))
+    throw new RangeError(`Unsupported Overmind role: ${String(role)}`);
 }
 
 function sandboxModeForRole(role: DriverRole): RolePolicy["sandboxMode"] {
@@ -33,7 +46,11 @@ function sandboxModeForRole(role: DriverRole): RolePolicy["sandboxMode"] {
   return undefined;
 }
 
-function rolePolicy(driverName: string, role: DriverRole, root: string): RolePolicy {
+function rolePolicy(
+  driverName: string,
+  role: DriverRole,
+  root: string
+): RolePolicy {
   const driver = driverName.trim().toLowerCase();
   switch (driver) {
     case "codex": {
@@ -84,7 +101,12 @@ function rolePolicy(driverName: string, role: DriverRole, root: string): RolePol
         // AGY has no documented config-dir override; HOME/USERPROFILE provide
         // the physical boundary while the vendor-specific keys cover CLIs that
         // do honor them.
-        environmentKeys: ["GEMINI_HOME", "GEMINI_CLI_HOME", "HOME", "USERPROFILE"],
+        environmentKeys: [
+          "GEMINI_HOME",
+          "GEMINI_CLI_HOME",
+          "HOME",
+          "USERPROFILE",
+        ],
       };
     }
     default: {
@@ -103,7 +125,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function mergeToml(base: TomlTable, overlay: Record<string, unknown>): TomlTable {
+function mergeToml(
+  base: TomlTable,
+  overlay: Record<string, unknown>
+): TomlTable {
   const merged: TomlTable = { ...base };
   for (const [key, value] of Object.entries(overlay)) {
     const previous = merged[key];
@@ -119,7 +144,7 @@ function applyRoleMcpServers(
   merged: TomlTable,
   driverName: string,
   role: DriverRole,
-  roleOverlay: Readonly<Record<string, unknown>> | undefined,
+  roleOverlay: Readonly<Record<string, unknown>> | undefined
 ): void {
   const overlayServers = roleOverlay?.mcp_servers;
   const wake =
@@ -135,7 +160,19 @@ function applyRoleMcpServers(
         delete merged.mcp_servers[name];
     }
   }
-  if (wake && isRecord(merged.mcp_servers)) merged.mcp_servers.overmind_wake = wake as TomlValue;
+  if (wake && isRecord(merged.mcp_servers))
+    merged.mcp_servers.overmind_wake = wake as TomlValue;
+}
+
+/** Provider failures must surface to Overmind so its sensor can route recovery. */
+function disableProviderRetries(merged: TomlTable): void {
+  const providerName = merged.model_provider;
+  if (typeof providerName !== "string" || !isRecord(merged.model_providers))
+    return;
+  const provider = merged.model_providers[providerName];
+  if (!isRecord(provider)) return;
+  provider.request_max_retries = 0;
+  provider.stream_max_retries = 0;
 }
 
 async function readable(path: string): Promise<boolean> {
@@ -159,16 +196,24 @@ function isMissing(error: unknown): boolean {
 function enforcedOverlay(
   driverName: string,
   role: DriverRole,
-  sandboxMode?: RolePolicy["sandboxMode"],
+  sandboxMode?: RolePolicy["sandboxMode"]
 ): Record<string, unknown> {
   const driver = driverName.trim().toLowerCase();
-  const providerKnown = ["codex", "claude", "opencode", "pi", "agy", "antigravity"].includes(
-    driver,
-  );
+  const providerKnown = [
+    "codex",
+    "claude",
+    "opencode",
+    "pi",
+    "agy",
+    "antigravity",
+  ].includes(driver);
   const providerOverlay: Record<string, unknown> = {
     ...(sandboxMode ? { sandbox_mode: sandboxMode } : {}),
     ...(role === "peer"
-      ? { web_search: "disabled", sandbox_workspace_write: { network_access: true } }
+      ? {
+          web_search: "disabled",
+          sandbox_workspace_write: { network_access: true },
+        }
       : {}),
     agents: { enabled: false },
     features: {
@@ -179,7 +224,9 @@ function enforcedOverlay(
   };
   return {
     memory: { causal_notebook: role === "supervisor" },
-    ...(providerKnown ? {} : { multi_agent_version: role === "peer" ? "disabled" : "paseo" }),
+    ...(providerKnown
+      ? {}
+      : { multi_agent_version: role === "peer" ? "disabled" : "paseo" }),
     ...(providerKnown ? providerOverlay : {}),
     overmind: {
       role,
@@ -194,7 +241,7 @@ function enforcedOverlay(
 export function roleEnvironment(
   driverName: string,
   role: DriverRole,
-  options: RoleEnvironmentOptions = {},
+  options: RoleEnvironmentOptions = {}
 ): RoleEnvironment {
   assertRole(role);
   const root = resolve(options.homeDirectory ?? homedir());
@@ -207,7 +254,8 @@ export function roleEnvironment(
     "memory.causal_notebook": String(role === "supervisor"),
     OVERMIND_AGENTS_ENABLED: role === "peer" ? "false" : "true",
     OVERMIND_MULTI_AGENT_VERSION: role === "peer" ? "disabled" : "paseo",
-    OVERMIND_MODEL_CATALOG_MULTI_AGENT_VERSION: role === "peer" ? "disabled" : "paseo",
+    OVERMIND_MODEL_CATALOG_MULTI_AGENT_VERSION:
+      role === "peer" ? "disabled" : "paseo",
     OVERMIND_WEBSEARCH_ENABLED: role === "peer" ? "false" : "true",
   };
   for (const key of policy.environmentKeys) env[key] = policy.homeDirectory;
@@ -222,9 +270,12 @@ async function readRoleBaseline(paths: readonly string[]): Promise<TomlTable> {
     try {
       baseline = mergeToml(baseline, parse(source) as TomlTable);
     } catch (error) {
-      throw new Error(`Unable to parse role baseline TOML '${sourcePath}': ${String(error)}`, {
-        cause: error,
-      });
+      throw new Error(
+        `Unable to parse role baseline TOML '${sourcePath}': ${String(error)}`,
+        {
+          cause: error,
+        }
+      );
     }
   }
   return baseline;
@@ -234,7 +285,7 @@ async function collectDisabledCodexSkills(
   root: string,
   roleHome: string,
   role: DriverRole,
-  cwd?: string,
+  cwd?: string
 ): Promise<Array<{ path: string; enabled: boolean }>> {
   const directories = new Set([
     join(root, ".agents", "skills"),
@@ -252,19 +303,24 @@ async function collectDisabledCodexSkills(
   const disabled: Array<{ path: string; enabled: boolean }> = [];
   const engine = new SkillFilteringEngine();
   for (const directory of directories) {
-    const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
-      if (isMissing(error)) return [];
-      throw error;
-    });
+    const entries = await readdir(directory, { withFileTypes: true }).catch(
+      (error: unknown) => {
+        if (isMissing(error)) return [];
+        throw error;
+      }
+    );
     for (const entry of entries) {
       if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       const skillPath = join(directory, entry.name, "SKILL.md");
-      const content = await readFile(skillPath, "utf8").catch((error: unknown) => {
-        if (isMissing(error)) return null;
-        throw error;
-      });
+      const content = await readFile(skillPath, "utf8").catch(
+        (error: unknown) => {
+          if (isMissing(error)) return null;
+          throw error;
+        }
+      );
       if (!content) continue;
-      const name = /^name:\s*["']?([^\r\n"']+)/mu.exec(content)?.[1]?.trim() ?? entry.name;
+      const name =
+        /^name:\s*["']?([^\r\n"']+)/mu.exec(content)?.[1]?.trim() ?? entry.name;
       if (engine.filter(role, [name]).length === 0) {
         disabled.push({ path: skillPath, enabled: false });
       }
@@ -276,13 +332,15 @@ async function collectDisabledCodexSkills(
 function mergeDisabledSkillConfig(
   merged: TomlTable,
   owner: TomlTable,
-  disabled: readonly { path: string; enabled: boolean }[],
+  disabled: readonly { path: string; enabled: boolean }[]
 ): void {
   const skills = isRecord(merged.skills) ? merged.skills : {};
   // Only the owner's entries carry over; generated ones from an earlier launch would
   // keep a skill disabled after the role's allowlist widens.
   const ownerSkills = isRecord(owner.skills) ? owner.skills : {};
-  const configured = Array.isArray(ownerSkills.config) ? ownerSkills.config : [];
+  const configured = Array.isArray(ownerSkills.config)
+    ? ownerSkills.config
+    : [];
   const byPath = new Map<string, TomlValue>();
   for (const entry of [...configured, ...disabled]) {
     if (isRecord(entry) && typeof entry.path === "string") {
@@ -292,11 +350,17 @@ function mergeDisabledSkillConfig(
   merged.skills = { ...skills, config: [...byPath.values()] } as TomlValue;
 }
 
-async function writeRoleConfig(configPath: string, merged: TomlTable): Promise<void> {
+async function writeRoleConfig(
+  configPath: string,
+  merged: TomlTable
+): Promise<void> {
   await mkdir(dirname(configPath), { recursive: true });
   const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporaryPath, `${stringify(merged)}\n`, { encoding: "utf8", mode: 0o600 });
+    await writeFile(temporaryPath, `${stringify(merged)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await rename(temporaryPath, configPath);
   } catch (error) {
     await unlink(temporaryPath).catch(() => undefined);
@@ -311,28 +375,38 @@ async function writeRoleConfig(configPath: string, merged: TomlTable): Promise<v
 export async function prepareRoleEnvironment(
   driverName: string,
   role: DriverRole,
-  options: RoleEnvironmentOptions = {},
+  options: RoleEnvironmentOptions = {}
 ): Promise<RoleEnvironment> {
   const environment = roleEnvironment(driverName, role, options);
   const root = resolve(options.homeDirectory ?? homedir());
   const policy = rolePolicy(driverName, role, root);
-  const baselineConfigPath = options.baselineConfigPath ?? policy.baselineConfigPath;
-  const baseline = await readRoleBaseline([baselineConfigPath, environment.configPath]);
+  const baselineConfigPath =
+    options.baselineConfigPath ?? policy.baselineConfigPath;
+  const baseline = await readRoleBaseline([
+    baselineConfigPath,
+    environment.configPath,
+  ]);
   const merged = mergeToml(
     mergeToml(baseline, options.roleOverlay ?? {}),
-    enforcedOverlay(driverName, role, policy.sandboxMode),
+    enforcedOverlay(driverName, role, policy.sandboxMode)
   );
   if (isRecord(merged.overmind)) delete merged.overmind.causal_notebook;
   // Never inherit a previous Supervisor's grant or broader tool settings from disk.
   applyRoleMcpServers(merged, driverName, role, options.roleOverlay);
+  if (driverName.trim().toLowerCase() === "codex")
+    disableProviderRetries(merged);
   if (driverName.trim().toLowerCase() === "codex") {
     const disabled = await collectDisabledCodexSkills(
       root,
       environment.roleHome,
       role,
-      options.cwd,
+      options.cwd
     );
-    mergeDisabledSkillConfig(merged, await readRoleBaseline([baselineConfigPath]), disabled);
+    mergeDisabledSkillConfig(
+      merged,
+      await readRoleBaseline([baselineConfigPath]),
+      disabled
+    );
   }
   await writeRoleConfig(environment.configPath, merged);
   const driver = driverName.trim().toLowerCase();
@@ -350,10 +424,16 @@ export async function prepareRoleEnvironment(
     };
   }
   if (driver !== "opencode") return environment;
-  const overlay = await openCodeOverlay(role, join(root, ".config", "opencode"));
+  const overlay = await openCodeOverlay(
+    role,
+    join(root, ".config", "opencode")
+  );
   return {
     ...environment,
-    env: { ...environment.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(overlay) },
+    env: {
+      ...environment.env,
+      OPENCODE_CONFIG_CONTENT: JSON.stringify(overlay),
+    },
   };
 }
 
@@ -362,10 +442,15 @@ const OPENCODE_WEB_TOOLS = ["websearch", "codesearch", "webfetch"];
 /** OpenCode permissions for the role; a denied tool is removed from the agent's toolset. */
 async function openCodeOverlay(role: DriverRole, configRoot: string) {
   const permission: Record<string, unknown> = { task: "deny" };
-  if (role === "supervisor") Object.assign(permission, { edit: "deny", bash: "deny" });
-  if (role === "peer") for (const tool of OPENCODE_WEB_TOOLS) permission[tool] = "deny";
+  if (role === "supervisor")
+    Object.assign(permission, { edit: "deny", bash: "deny" });
+  if (role === "peer")
+    for (const tool of OPENCODE_WEB_TOOLS) permission[tool] = "deny";
   const denied = new SkillFilteringEngine().overlay(role).denied_skills;
-  permission.skill = Object.fromEntries([["*", "allow"], ...denied.map((name) => [name, "deny"])]);
+  permission.skill = Object.fromEntries([
+    ["*", "allow"],
+    ...denied.map((name) => [name, "deny"]),
+  ]);
   if (role === "lead") return { permission };
   const mcp: Record<string, { enabled: false }> = {};
   for (const name of await openCodeMcpServers(configRoot))
@@ -376,14 +461,18 @@ async function openCodeOverlay(role: DriverRole, configRoot: string) {
 async function openCodeMcpServers(configRoot: string): Promise<string[]> {
   const names: string[] = [];
   for (const file of ["opencode.json", "opencode.jsonc"]) {
-    const text = await readFile(join(configRoot, file), "utf8").catch((error: unknown) => {
-      if (isMissing(error)) return null;
-      throw error;
-    });
+    const text = await readFile(join(configRoot, file), "utf8").catch(
+      (error: unknown) => {
+        if (isMissing(error)) return null;
+        throw error;
+      }
+    );
     if (!text) continue;
     // shortcut: only whole-line // comments are stripped; a config with others is skipped.
     try {
-      const config = JSON.parse(text.replace(/^\s*\/\/.*$/gmu, "")) as { mcp?: object };
+      const config = JSON.parse(text.replace(/^\s*\/\/.*$/gmu, "")) as {
+        mcp?: object;
+      };
       names.push(...Object.keys(config.mcp ?? {}));
     } catch {
       continue;
@@ -423,13 +512,14 @@ async function writeAgyPeerAgent(roleHome: string): Promise<void> {
   ];
   await writeFile(
     join(directory, `${AGY_PEER_AGENT}.md`),
-    `${frontmatter.join("\n")}\n\n${promptForRole("peer")}\n`,
+    `${frontmatter.join("\n")}\n\n${promptForRole("peer")}\n`
   );
 }
 
 const AGY_WEB_DENY_HOOK = "overmind-peer-no-web";
 const AGY_WEB_DENY_FILE = "overmind-deny-web.json";
-const AGY_PEER_DENIED_TOOLS = "search_web|read_url_content|define_subagent|manage_subagents";
+const AGY_PEER_DENIED_TOOLS =
+  "search_web|read_url_content|define_subagent|manage_subagents";
 
 /**
  * AGY has no setting that removes its web tools, so a PreToolUse hook denies them. The
@@ -443,8 +533,9 @@ async function writeAgyWebDenyHook(roleHome: string): Promise<void> {
     join(directory, AGY_WEB_DENY_FILE),
     JSON.stringify({
       decision: "deny",
-      reason: "Overmind Peer: web search and new sub-agent definitions are disabled.",
-    }),
+      reason:
+        "Overmind Peer: web search and new sub-agent definitions are disabled.",
+    })
   );
   const existing = await readFile(hooksPath, "utf8").catch((error: unknown) => {
     if (isMissing(error)) return "{}";
@@ -458,14 +549,22 @@ async function writeAgyWebDenyHook(roleHome: string): Promise<void> {
       {
         // invoke_subagent stays: the built-in image-generator runs through it.
         matcher: AGY_PEER_DENIED_TOOLS,
-        hooks: [{ type: "command", command: `${print} ${AGY_WEB_DENY_FILE}`, timeout: 10 }],
+        hooks: [
+          {
+            type: "command",
+            command: `${print} ${AGY_WEB_DENY_FILE}`,
+            timeout: 10,
+          },
+        ],
       },
     ],
   };
   await writeFile(hooksPath, `${JSON.stringify(hooks, null, 2)}\n`);
 }
 
-export function roleModelCatalogOptions(role: DriverRole): Readonly<Record<string, unknown>> {
+export function roleModelCatalogOptions(
+  role: DriverRole
+): Readonly<Record<string, unknown>> {
   assertRole(role);
   return Object.freeze({
     multi_agent_version: "disabled",

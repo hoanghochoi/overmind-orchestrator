@@ -9,7 +9,9 @@ import { DriverRegistry } from "./registry.js";
 describe("Overmind driver adapters", () => {
   test("registers supported drivers and falls back for unknown drivers", () => {
     expect(DriverRegistry.getAdapter(" CODEX ").driverName).toBe("codex");
-    expect(DriverRegistry.getAdapter("custom-driver").driverName).toBe("generic");
+    expect(DriverRegistry.getAdapter("custom-driver").driverName).toBe(
+      "generic"
+    );
     expect(new CodexCliAdapter().getModelCatalogOptions("lead")).toEqual({
       multi_agent_version: "disabled",
       agents: { enabled: false },
@@ -26,6 +28,7 @@ describe("Overmind driver adapters", () => {
         baseline,
         [
           'model = "baseline-model"',
+          'model_provider = "router"',
           'sandbox_mode = "danger-full-access"',
           "[agents]",
           "enabled = true",
@@ -37,18 +40,21 @@ describe("Overmind driver adapters", () => {
           'command = "codegraph"',
           "[mcp_servers.cloudflare]",
           'url = "https://example.invalid/mcp"',
+          "[model_providers.router]",
+          'name = "Router"',
+          "request_max_retries = 7",
+          "stream_max_retries = 9",
           "",
         ].join("\n"),
-        "utf8",
+        "utf8"
       );
       const env = await new CodexCliAdapter().buildSpawnEnv("supervisor", {
         homeDirectory: root,
       });
       const roleHome = join(root, ".codex", "roles", "supervisor");
-      const config = parse(await readFile(join(roleHome, "config.toml"), "utf8")) as Record<
-        string,
-        unknown
-      >;
+      const config = parse(
+        await readFile(join(roleHome, "config.toml"), "utf8")
+      ) as Record<string, unknown>;
       expect(env).toMatchObject({
         CODEX_HOME: roleHome,
         OVERMIND_ROLE: "supervisor",
@@ -57,6 +63,10 @@ describe("Overmind driver adapters", () => {
       });
       expect(config).toMatchObject({
         model: "baseline-model",
+        model_provider: "router",
+        model_providers: {
+          router: { request_max_retries: 0, stream_max_retries: 0 },
+        },
         sandbox_mode: "read-only",
         agents: { enabled: false },
         features: { multi_agent_v2: false },
@@ -64,20 +74,33 @@ describe("Overmind driver adapters", () => {
         overmind: { multi_agent_version: "paseo" },
         custom: { keep: "yes" },
       });
-      const peerEnv = await new CodexCliAdapter().buildSpawnEnv("peer", { homeDirectory: root });
+      const peerEnv = await new CodexCliAdapter().buildSpawnEnv("peer", {
+        homeDirectory: root,
+      });
       expect(peerEnv).toMatchObject({
         OVERMIND_SANDBOX_MODE: "workspace-write",
         OVERMIND_WEBSEARCH_ENABLED: "false",
       });
       // Owner MCP servers act outside the sandbox: Supervisor and Peer keep only the allowlist.
       expect(Object.keys(config.mcp_servers as object)).toEqual(["codegraph"]);
-      await new CodexCliAdapter().buildSpawnEnv("lead", { homeDirectory: root });
+      await new CodexCliAdapter().buildSpawnEnv("lead", {
+        homeDirectory: root,
+      });
       const leadConfig = parse(
-        await readFile(join(root, ".codex", "roles", "lead", "config.toml"), "utf8"),
+        await readFile(
+          join(root, ".codex", "roles", "lead", "config.toml"),
+          "utf8"
+        )
       ) as { mcp_servers: object };
-      expect(Object.keys(leadConfig.mcp_servers)).toEqual(["codegraph", "cloudflare"]);
+      expect(Object.keys(leadConfig.mcp_servers)).toEqual([
+        "codegraph",
+        "cloudflare",
+      ]);
       const peerConfig = parse(
-        await readFile(join(root, ".codex", "roles", "peer", "config.toml"), "utf8"),
+        await readFile(
+          join(root, ".codex", "roles", "peer", "config.toml"),
+          "utf8"
+        )
       ) as Record<string, unknown>;
       expect(peerConfig).toMatchObject({
         sandbox_mode: "workspace-write",
@@ -101,7 +124,7 @@ describe("Overmind driver adapters", () => {
           'disabled_tools = ["create_supervisor_wake"]',
           "[mcp_servers.overmind_wake.tools.create_agent]",
           'approval_mode = "approve"',
-        ].join("\n"),
+        ].join("\n")
       );
       const wake = {
         url: "http://127.0.0.1:12345/wake/current-grant",
@@ -115,8 +138,11 @@ describe("Overmind driver adapters", () => {
         homeDirectory: root,
         roleOverlay: { mcp_servers: { overmind_wake: wake } },
       });
-      const read = async (home: string) => parse(await readFile(join(home, "config.toml"), "utf8"));
-      expect((await read(env.CODEX_HOME!)).mcp_servers).toEqual({ overmind_wake: wake });
+      const read = async (home: string) =>
+        parse(await readFile(join(home, "config.toml"), "utf8"));
+      expect((await read(env.CODEX_HOME!)).mcp_servers).toEqual({
+        overmind_wake: wake,
+      });
       expect((await read(env.CODEX_HOME!)).sandbox_mode).toBe("read-only");
       await adapter.buildSpawnEnv("supervisor", { homeDirectory: root });
       expect((await read(env.CODEX_HOME!)).mcp_servers).toEqual({});
@@ -143,9 +169,12 @@ describe("Overmind driver adapters", () => {
       ]);
       const homes = new Set<string>();
       for (const [driver, envKey] of expected) {
-        const env = await DriverRegistry.getAdapter(driver).buildSpawnEnv("lead", {
-          homeDirectory: root,
-        });
+        const env = await DriverRegistry.getAdapter(driver).buildSpawnEnv(
+          "lead",
+          {
+            homeDirectory: root,
+          }
+        );
         expect(env[envKey]).toBeTruthy();
         homes.add(env[envKey]!);
         expect(env.OVERMIND_ROLE).toBe("lead");
@@ -165,7 +194,7 @@ describe("Overmind driver adapters", () => {
       await mkdir(configRoot, { recursive: true });
       await writeFile(
         join(configRoot, "opencode.jsonc"),
-        '// owner config\n{"mcp": {"codegraph": {}, "9remote": {}}, "model": "hive/deepseek"}',
+        '// owner config\n{"mcp": {"codegraph": {}, "9remote": {}}, "model": "hive/deepseek"}'
       );
       const adapter = DriverRegistry.getAdapter("opencode");
       const peer = await adapter.buildSpawnEnv("peer", { homeDirectory: root });
@@ -180,15 +209,19 @@ describe("Overmind driver adapters", () => {
         mcp: { "9remote": { enabled: false } },
       });
       const lead = JSON.parse(
-        (await adapter.buildSpawnEnv("lead", { homeDirectory: root })).OPENCODE_CONFIG_CONTENT!,
+        (await adapter.buildSpawnEnv("lead", { homeDirectory: root }))
+          .OPENCODE_CONFIG_CONTENT!
       );
       expect(lead).not.toHaveProperty("mcp");
       expect(lead.permission).not.toHaveProperty("webfetch");
       const supervisor = JSON.parse(
         (await adapter.buildSpawnEnv("supervisor", { homeDirectory: root }))
-          .OPENCODE_CONFIG_CONTENT!,
+          .OPENCODE_CONFIG_CONTENT!
       );
-      expect(supervisor.permission).toMatchObject({ edit: "deny", bash: "deny" });
+      expect(supervisor.permission).toMatchObject({
+        edit: "deny",
+        bash: "deny",
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -200,22 +233,40 @@ describe("Overmind driver adapters", () => {
       const adapter = DriverRegistry.getAdapter("agy");
       const peer = await adapter.buildSpawnEnv("peer", { homeDirectory: root });
       const config = join(peer.USERPROFILE!, ".gemini", "config");
-      const hooks = JSON.parse(await readFile(join(config, "hooks.json"), "utf8"));
+      const hooks = JSON.parse(
+        await readFile(join(config, "hooks.json"), "utf8")
+      );
       const group = hooks["overmind-peer-no-web"].PreToolUse[0];
-      expect(group.matcher).toBe("search_web|read_url_content|define_subagent|manage_subagents");
+      expect(group.matcher).toBe(
+        "search_web|read_url_content|define_subagent|manage_subagents"
+      );
       expect(group.matcher).not.toContain("generate_image");
       expect(
-        JSON.parse(await readFile(join(config, "overmind-deny-web.json"), "utf8")),
+        JSON.parse(
+          await readFile(join(config, "overmind-deny-web.json"), "utf8")
+        )
       ).toMatchObject({ decision: "deny" });
       // The Peer runs as a primary agent whose tool list leaves out web search and sub-agents.
-      expect(peer.AGY_EXTRA_ARGS).toBe("--agent overmind-peer --dangerously-skip-permissions");
-      const agent = await readFile(join(config, "agents", "overmind-peer.md"), "utf8");
-      expect(agent).toMatch(/^---\nname: overmind-peer\n[\s\S]* {2}- generate_image\n---\n/u);
-      expect(agent).not.toMatch(/ - (?:search_web|read_url_content|\w*subagents?)\n/u);
+      expect(peer.AGY_EXTRA_ARGS).toBe(
+        "--agent overmind-peer --dangerously-skip-permissions"
+      );
+      const agent = await readFile(
+        join(config, "agents", "overmind-peer.md"),
+        "utf8"
+      );
+      expect(agent).toMatch(
+        /^---\nname: overmind-peer\n[\s\S]* {2}- generate_image\n---\n/u
+      );
+      expect(agent).not.toMatch(
+        / - (?:search_web|read_url_content|\w*subagents?)\n/u
+      );
       const lead = await adapter.buildSpawnEnv("lead", { homeDirectory: root });
       expect(lead).not.toHaveProperty("AGY_EXTRA_ARGS");
       await expect(
-        readFile(join(lead.USERPROFILE!, ".gemini", "config", "hooks.json"), "utf8"),
+        readFile(
+          join(lead.USERPROFILE!, ".gemini", "config", "hooks.json"),
+          "utf8"
+        )
       ).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -226,31 +277,55 @@ describe("Overmind driver adapters", () => {
     const root = await mkdtemp(join(tmpdir(), "overmind-native-skills-"));
     try {
       const workspace = join(root, "project");
-      const deniedSkill = join(workspace, ".agents", "skills", "room-management");
+      const deniedSkill = join(
+        workspace,
+        ".agents",
+        "skills",
+        "room-management"
+      );
       await mkdir(deniedSkill, { recursive: true });
       await writeFile(
         join(deniedSkill, "SKILL.md"),
-        "---\nname: room-management\n---\nmanage rooms\n",
+        "---\nname: room-management\n---\nmanage rooms\n"
       );
       const adapter = new CodexCliAdapter();
-      const first = await adapter.buildSpawnEnv("peer", { homeDirectory: root, cwd: workspace });
+      const first = await adapter.buildSpawnEnv("peer", {
+        homeDirectory: root,
+        cwd: workspace,
+      });
       const configPath = join(first.CODEX_HOME!, "config.toml");
       await writeFile(
         configPath,
-        `${await readFile(configPath, "utf8")}\n[custom]\nkeep = "role-local"\n`,
+        `${await readFile(configPath, "utf8")}\n[custom]\nkeep = "role-local"\n`
       );
       // An entry generated under an earlier, narrower allowlist.
-      const allowedSkill = join(workspace, ".agents", "skills", "9router-image", "SKILL.md");
+      const allowedSkill = join(
+        workspace,
+        ".agents",
+        "skills",
+        "9router-image",
+        "SKILL.md"
+      );
       await writeFile(
         configPath,
-        `${await readFile(configPath, "utf8")}\n[[skills.config]]\npath = ${JSON.stringify(allowedSkill)}\nenabled = false\n`,
+        `${await readFile(
+          configPath,
+          "utf8"
+        )}\n[[skills.config]]\npath = ${JSON.stringify(
+          allowedSkill
+        )}\nenabled = false\n`
       );
-      await adapter.buildSpawnEnv("peer", { homeDirectory: root, cwd: workspace });
+      await adapter.buildSpawnEnv("peer", {
+        homeDirectory: root,
+        cwd: workspace,
+      });
       const config = parse(await readFile(configPath, "utf8"));
       expect(config).toMatchObject({
         custom: { keep: "role-local" },
         skills: {
-          config: expect.arrayContaining([{ path: join(deniedSkill, "SKILL.md"), enabled: false }]),
+          config: expect.arrayContaining([
+            { path: join(deniedSkill, "SKILL.md"), enabled: false },
+          ]),
         },
       });
       expect(JSON.stringify(config)).not.toContain("9router-image");

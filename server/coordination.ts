@@ -1,7 +1,11 @@
 import type { PaseoApi } from "@getpaseo/client";
 import { z } from "zod";
 import type { SeatProfile } from "./providers.js";
-import { CONTRACT_LABEL, createContractLock, readContractLock } from "./contract.js";
+import {
+  CONTRACT_LABEL,
+  createContractLock,
+  readContractLock,
+} from "./contract.js";
 import {
   CREATION_TICKET_ENV,
   CreationTickets,
@@ -31,7 +35,10 @@ import { DetectionLog } from "./detection-log.js";
 import { escalatedAntiPatterns, type RepetitionTracker } from "./repetition.js";
 import { NAME_LABEL, pickName, seatTitle } from "./names.js";
 import type { IntentStore } from "./intent-store.js";
-import { createSupervisorWake, supervisorWakeInput } from "./supervisor-wake.js";
+import {
+  createSupervisorWake,
+  supervisorWakeInput,
+} from "./supervisor-wake.js";
 
 const agentId = z.string().trim().min(1);
 const prompt = z.string().trim().min(1).max(32_000);
@@ -63,13 +70,17 @@ function dualSeatBrief(
   question: string,
   side: string,
   direction: { label: string; brief: string },
-  criteria: readonly string[],
+  criteria: readonly string[]
 ): string {
   return [
     `[Overmind dual-seat · direction ${side}]`,
     `Decision under study:\n${question}`,
     `Your direction: ${direction.label}\n${direction.brief}`,
-    `Criteria:\n${criteria.length ? criteria.map((criterion) => `- ${criterion}`).join("\n") : "- None given."}`,
+    `Criteria:\n${
+      criteria.length
+        ? criteria.map((criterion) => `- ${criterion}`).join("\n")
+        : "- None given."
+    }`,
     "Research only this direction. Another Peer studies a different direction; you will not see its brief or result, and must not look for it.",
     "Read the code and gather the evidence you need, but do not modify files in the workspace or its git state. Build any prototype only in a new temporary directory outside the workspace.",
     "Report honestly, even against your direction: whether it is viable, the evidence (commands and their output), risks, the cost of adopting it, and your confidence.",
@@ -81,7 +92,7 @@ const task = z
   .min(1)
   .max(60)
   .describe(
-    "A few words naming the work, in the Human's language, e.g. \"Tạo ảnh cây cối\". Overmind titles the seat '<Name> - <Role> - <task>'.",
+    "A few words naming the work, in the Human's language, e.g. \"Tạo ảnh cây cối\". Overmind titles the seat '<Name> - <Role> - <task>'."
   );
 const effort = z
   .string()
@@ -89,13 +100,14 @@ const effort = z
   .min(1)
   .max(24)
   .describe(
-    "Thinking level for the new agent, one its profile's model offers; an unknown level is refused with the valid ones. Omit for the configured default.",
+    "Thinking level for the new agent, one its profile's model offers; an unknown level is refused with the valid ones. Omit for the configured default."
   );
 const AWAIT_REPORT =
   "End your turn now and wait idle. Overmind sends you its result as a new message when its turn ends; do not poll its status or activity, sleep, or loop while it works.";
 export const COORDINATION_TOOLS = {
   list_agents: {
-    description: "List agents with their Overmind role, parent, workspace and status.",
+    description:
+      "List agents with their Overmind role, parent, workspace and status.",
     schema: z.object({ includeArchived: z.boolean().optional() }).strict(),
     roles: BOTH,
   },
@@ -108,7 +120,9 @@ export const COORDINATION_TOOLS = {
   get_agent_activity: {
     description:
       "Recent timeline of an agent you coordinate. Refused while it still owes you a report: wait for that report instead.",
-    schema: z.object({ agentId, limit: z.number().int().min(1).max(50).optional() }).strict(),
+    schema: z
+      .object({ agentId, limit: z.number().int().min(1).max(50).optional() })
+      .strict(),
     roles: BOTH,
   },
   list_workspaces: {
@@ -158,6 +172,18 @@ export const COORDINATION_TOOLS = {
       .strict(),
     roles: ["lead"],
   },
+  answer_peer_question: {
+    description:
+      "Lead only. Answer a pending question permission from one of your directly owned Peers. Use the requestId from the OVERMIND PEER QUESTION notice and provide one answer for every question.",
+    schema: z
+      .object({
+        agentId,
+        requestId: agentId,
+        answers: z.record(z.string().trim().min(1), z.string().trim().min(1)),
+      })
+      .strict(),
+    roles: ["lead"],
+  },
   dual_seat: {
     description:
       "Lead only. For a hard decision, research two directions independently before choosing: Overmind creates one Peer per direction, at the given effort, each blind to the other and limited to reading and prototyping outside the workspace. Both results come back to you in one report; then converge on a decision.",
@@ -171,7 +197,7 @@ export const COORDINATION_TOOLS = {
                 label: z.string().trim().min(1).max(40),
                 brief: z.string().trim().min(10).max(4000),
               })
-              .strict(),
+              .strict()
           )
           .length(2),
         criteria: z.array(z.string().trim().min(1).max(500)).max(10).optional(),
@@ -230,7 +256,7 @@ export const COORDINATION_TOOLS = {
                   answer: intentText,
                   humanQuotes: z.array(intentText).min(1).max(10),
                 })
-                .strict(),
+                .strict()
             )
             .min(1)
             .max(10),
@@ -272,8 +298,8 @@ export const COORDINATION_TOOLS = {
 export type CoordinationTool = keyof typeof COORDINATION_TOOLS;
 
 export function toolsForRole(role: Role): CoordinationTool[] {
-  return (Object.keys(COORDINATION_TOOLS) as CoordinationTool[]).filter((name) =>
-    (COORDINATION_TOOLS[name].roles as readonly Role[]).includes(role),
+  return (Object.keys(COORDINATION_TOOLS) as CoordinationTool[]).filter(
+    (name) => (COORDINATION_TOOLS[name].roles as readonly Role[]).includes(role)
   );
 }
 
@@ -290,8 +316,8 @@ function summary(seat: Seat) {
     archivedAt: seat.archivedAt,
     labels: Object.fromEntries(
       Object.entries(seat.labels).filter(
-        ([key]) => key.startsWith("overmind.") && key !== TASK_AGREEMENT_LABEL,
-      ),
+        ([key]) => key.startsWith("overmind.") && key !== TASK_AGREEMENT_LABEL
+      )
     ),
   };
 }
@@ -316,7 +342,9 @@ export class Coordinator {
 
   /** Serialize label mutations per Lead so checks and writes see one state. */
   private exclusive<T>(key: string, work: () => Promise<T>): Promise<T> {
-    const run = (this.locks.get(key) ?? Promise.resolve()).catch(() => undefined).then(work);
+    const run = (this.locks.get(key) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(work);
     this.locks.set(key, run);
     void run
       .catch(() => undefined)
@@ -353,7 +381,7 @@ export class Coordinator {
         const overlays = await this.deps.seats.getMany(ids);
         return {
           agents: page.entries.map((entry) =>
-            summary(seatFrom(entry.agent, overlays[entry.agent.id] ?? {})),
+            summary(seatFrom(entry.agent, overlays[entry.agent.id] ?? {}))
           ),
         };
       }
@@ -361,16 +389,25 @@ export class Coordinator {
         const target = await this.seat((input as { agentId: string }).agentId);
         assertTarget(caller, name, target);
         this.assertNotAwaiting(caller, target);
-        return { ...summary(target), lastUserMessageAt: target.lastUserMessageAt };
+        return {
+          ...summary(target),
+          lastUserMessageAt: target.lastUserMessageAt,
+        };
       }
       case "get_agent_activity": {
-        const { agentId: id, limit } = input as { agentId: string; limit?: number };
+        const { agentId: id, limit } = input as {
+          agentId: string;
+          limit?: number;
+        };
         const target = await this.seat(id);
         assertTarget(caller, name, target);
         this.assertNotAwaiting(caller, target);
         const items = await recentTimeline(paseo, target.id, limit ?? 20);
         return {
-          items: items.map((item) => ({ type: item.type, text: item.text?.slice(0, 2000) })),
+          items: items.map((item) => ({
+            type: item.type,
+            text: item.text?.slice(0, 2000),
+          })),
         };
       }
       case "list_workspaces": {
@@ -388,25 +425,40 @@ export class Coordinator {
       case "list_providers":
         return paseo.providers.listAvailable();
       case "list_models":
-        return paseo.providers.listModels((input as { provider: string }).provider);
+        return paseo.providers.listModels(
+          (input as { provider: string }).provider
+        );
       case "create_supervisor_wake":
-        return createSupervisorWake(caller.id, input as z.infer<typeof supervisorWakeInput>);
+        return createSupervisorWake(
+          caller.id,
+          input as z.infer<typeof supervisorWakeInput>
+        );
       case "create_agent":
         return this.createAgent(
           caller,
-          input as z.infer<typeof COORDINATION_TOOLS.create_agent.schema>,
+          input as z.infer<typeof COORDINATION_TOOLS.create_agent.schema>
         );
       case "ask_supervisor":
         return this.askSupervisor(
           caller,
-          input as z.infer<typeof COORDINATION_TOOLS.ask_supervisor.schema>,
+          input as z.infer<typeof COORDINATION_TOOLS.ask_supervisor.schema>
+        );
+      case "answer_peer_question":
+        return this.answerPeerQuestion(
+          caller,
+          input as z.infer<
+            typeof COORDINATION_TOOLS.answer_peer_question.schema
+          >
         );
       case "dual_seat":
-        return this.dualSeat(caller, input as z.infer<typeof COORDINATION_TOOLS.dual_seat.schema>);
+        return this.dualSeat(
+          caller,
+          input as z.infer<typeof COORDINATION_TOOLS.dual_seat.schema>
+        );
       case "send_agent_prompt":
         return this.sendPrompt(
           caller,
-          input as z.infer<typeof COORDINATION_TOOLS.send_agent_prompt.schema>,
+          input as z.infer<typeof COORDINATION_TOOLS.send_agent_prompt.schema>
         );
       case "archive_agent": {
         const target = await this.seat((input as { agentId: string }).agentId);
@@ -415,28 +467,35 @@ export class Coordinator {
         return paseo.agents.ref(target.id).archive();
       }
       case "overmind_task_review":
-        return this.review(caller, input as z.infer<typeof supervisorTaskInput>);
+        return this.review(
+          caller,
+          input as z.infer<typeof supervisorTaskInput>
+        );
       case "product_intent":
         return this.productIntent(
           caller,
-          input as z.infer<typeof COORDINATION_TOOLS.product_intent.schema>,
+          input as z.infer<typeof COORDINATION_TOOLS.product_intent.schema>
         );
       case "sensor_log":
-        return this.sensorLog(input as z.infer<typeof COORDINATION_TOOLS.sensor_log.schema>);
+        return this.sensorLog(
+          input as z.infer<typeof COORDINATION_TOOLS.sensor_log.schema>
+        );
       case "contract_lock":
         return this.contractLock(
           caller,
-          input as z.infer<typeof COORDINATION_TOOLS.contract_lock.schema>,
+          input as z.infer<typeof COORDINATION_TOOLS.contract_lock.schema>
         );
     }
   }
 
-  private async sensorLog(filter: z.infer<typeof COORDINATION_TOOLS.sensor_log.schema>) {
+  private async sensorLog(
+    filter: z.infer<typeof COORDINATION_TOOLS.sensor_log.schema>
+  ) {
     const entries = (await this.deps.detections.read()).filter(
       (entry) =>
         (!filter.agentId || entry.agentId === filter.agentId) &&
         (!filter.rule || entry.patterns.includes(filter.rule)) &&
-        (filter.confirmed === undefined || entry.confirmed === filter.confirmed),
+        (filter.confirmed === undefined || entry.confirmed === filter.confirmed)
     );
     const antiPatterns: Record<string, number> = {};
     for (const entry of entries)
@@ -452,12 +511,17 @@ export class Coordinator {
 
   private async createAgent(
     caller: Seat,
-    input: z.infer<typeof COORDINATION_TOOLS.create_agent.schema>,
+    input: z.infer<typeof COORDINATION_TOOLS.create_agent.schema>
   ) {
     const role = NEXT_ROLE[caller.role!]!;
-    const workspaceId = role === "lead" ? input.workspaceId : caller.workspaceId;
+    const workspaceId =
+      role === "lead" ? input.workspaceId : caller.workspaceId;
     if (!workspaceId) denied("a Lead needs the target workspaceId");
-    if (role === "peer" && input.workspaceId && input.workspaceId !== caller.workspaceId)
+    if (
+      role === "peer" &&
+      input.workspaceId &&
+      input.workspaceId !== caller.workspaceId
+    )
       denied("a Peer stays in its Lead's workspace");
     const lead = role === "lead" ? null : caller;
     return this.exclusive(lead?.id ?? caller.id, async () => {
@@ -477,12 +541,14 @@ export class Coordinator {
       task: string;
       labels?: Record<string, string>;
       effort?: string;
-    },
+    }
   ): Promise<string> {
     const profile = await this.profileFor(role);
     if (input.effort && !profile.efforts.includes(input.effort))
       denied(
-        `effort ${input.effort} is not offered by ${role}; choose one of: ${profile.efforts.join(", ") || "none"}`,
+        `effort ${input.effort} is not offered by ${role}; choose one of: ${
+          profile.efforts.join(", ") || "none"
+        }`
       );
     const labels: Record<string, string> = { ...input.labels };
     if (role === "peer") {
@@ -494,30 +560,39 @@ export class Coordinator {
     labels[NAME_LABEL] = name;
     const title = seatTitle(name, role, input.task);
     // A Lead owns its workspace; Peers share it, so only a Lead names it.
-    if (role === "lead") await this.deps.paseo.workspaces.ref(workspaceId).setTitle(title);
-    const handle = await this.deps.paseo.workspaces.ref(workspaceId).agents.create({
-      config: {
-        provider: `${profile.provider}/${profile.model}`,
-        ...(input.effort ? { thinkingOptionId: input.effort } : {}),
-      },
-      parent: caller.id,
-      title,
-      prompt: input.prompt,
-      labels,
-      env: { [CREATION_TICKET_ENV]: this.deps.tickets.issue(role, caller.id) },
-    });
+    if (role === "lead")
+      await this.deps.paseo.workspaces.ref(workspaceId).setTitle(title);
+    const handle = await this.deps.paseo.workspaces
+      .ref(workspaceId)
+      .agents.create({
+        config: {
+          provider: `${profile.provider}/${profile.model}`,
+          ...(input.effort ? { thinkingOptionId: input.effort } : {}),
+        },
+        parent: caller.id,
+        title,
+        prompt: input.prompt,
+        labels,
+        env: {
+          [CREATION_TICKET_ENV]: this.deps.tickets.issue(role, caller.id),
+        },
+      });
     return handle.id;
   }
 
   private async profileFor(role: Role): Promise<SeatProfile> {
-    const profile = (await this.deps.profiles()).find((entry) => entry.role === role);
+    const profile = (await this.deps.profiles()).find(
+      (entry) => entry.role === role
+    );
     if (profile) return profile;
-    throw new Error(`Chưa cấu hình model cho Overmind ${role}. Mở Overmind Command → Settings.`);
+    throw new Error(
+      `Chưa cấu hình model cho Overmind ${role}. Mở Overmind Command → Settings.`
+    );
   }
 
   private async productIntent(
     caller: Seat,
-    input: z.infer<typeof COORDINATION_TOOLS.product_intent.schema>,
+    input: z.infer<typeof COORDINATION_TOOLS.product_intent.schema>
   ) {
     const { intents } = this.deps;
     if (input.action === "read") return intents.read(input.project);
@@ -534,37 +609,55 @@ export class Coordinator {
       };
     }
     // shortcut: reads the last 200 items; an answer older than that cannot be quoted.
-    const { messages } = humanReviewContext(await recentTimeline(this.deps.paseo, caller.id, 200));
+    const { messages } = humanReviewContext(
+      await recentTimeline(this.deps.paseo, caller.id, 200)
+    );
     const unquoted = input.answers
       .flatMap((answer) => answer.humanQuotes)
       .filter((quote) => !messages.some((message) => message.includes(quote)));
     if (unquoted.length)
       throw new Error(
-        `OVERMIND_INTENT_DENIED: these quotes are not in the Human's messages to you: ${unquoted.map((quote) => JSON.stringify(quote)).join(", ")}`,
+        `OVERMIND_INTENT_DENIED: these quotes are not in the Human's messages to you: ${unquoted
+          .map((quote) => JSON.stringify(quote))
+          .join(", ")}`
       );
     const recorded = await intents.record(
       input.project,
-      input.answers.map(({ question, answer, humanQuotes }) => ({ question, answer, humanQuotes })),
-      input.answers.flatMap((answer) => (answer.questionId ? [answer.questionId] : [])),
+      input.answers.map(({ question, answer, humanQuotes }) => ({
+        question,
+        answer,
+        humanQuotes,
+      })),
+      input.answers.flatMap((answer) =>
+        answer.questionId ? [answer.questionId] : []
+      )
     );
     const open = await intents.openCount();
-    await this.deps.seats.merge(caller.id, { [INTENT_OPEN_LABEL]: open ? String(open) : "" });
+    await this.deps.seats.merge(caller.id, {
+      [INTENT_OPEN_LABEL]: open ? String(open) : "",
+    });
     return { recorded, open: (await intents.read(input.project)).open };
   }
 
   private async askSupervisor(
     lead: Seat,
-    input: z.infer<typeof COORDINATION_TOOLS.ask_supervisor.schema>,
+    input: z.infer<typeof COORDINATION_TOOLS.ask_supervisor.schema>
   ) {
     const supervisor = lead.parentId ? await this.seat(lead.parentId) : null;
     if (supervisor?.role !== "supervisor" || supervisor.archivedAt)
       denied("this Lead has no live Supervisor");
     const lines = [
-      `[Overmind · Lead question] ${lead.title ?? "Lead"} (${lead.id}) needs your decision and waits idle for it; its own Peers may still be working.`,
+      `[Overmind · Lead question] ${lead.title ?? "Lead"} (${
+        lead.id
+      }) needs your decision and waits idle for it; its own Peers may still be working.`,
       `Question:\n${input.question}`,
       ...(input.context ? [`Context:\n${input.context}`] : []),
       ...(input.options?.length
-        ? [`Options:\n${input.options.map((option) => `- ${option}`).join("\n")}`]
+        ? [
+            `Options:\n${input.options
+              .map((option) => `- ${option}`)
+              .join("\n")}`,
+          ]
         : []),
       `Answer with send_agent_prompt to ${lead.id}. If the answer depends on the Human's product intent or changes the agreed scope, ask the Human first and relay the decision precisely.`,
     ];
@@ -579,7 +672,73 @@ export class Coordinator {
     };
   }
 
-  private dualSeat(lead: Seat, input: z.infer<typeof COORDINATION_TOOLS.dual_seat.schema>) {
+  private async answerPeerQuestion(
+    lead: Seat,
+    input: z.infer<typeof COORDINATION_TOOLS.answer_peer_question.schema>
+  ) {
+    const peer = await this.seat(input.agentId);
+    assertTarget(lead, "answer_peer_question", peer);
+    const current = await this.deps.paseo.agents.ref(peer.id).refresh();
+    const request = current?.agent.pendingPermissions?.find(
+      (entry) => entry.id === input.requestId
+    );
+    if (!request)
+      throw new Error(
+        `OVERMIND_QUESTION_NOT_FOUND: ${input.requestId} is not pending on ${peer.id}`
+      );
+    if (request.kind !== "question")
+      throw new Error(
+        `OVERMIND_QUESTION_KIND: ${input.requestId} is not a question permission`
+      );
+    const questions = Array.isArray(
+      (request.input as { questions?: unknown } | undefined)?.questions
+    )
+      ? (request.input as { questions: unknown[] }).questions
+      : [];
+    if (!questions.length)
+      throw new Error(
+        `OVERMIND_QUESTION_EMPTY: ${input.requestId} has no questions`
+      );
+    const answers: Record<string, string> = {};
+    for (const [index, raw] of questions.entries()) {
+      const question = raw as {
+        header?: unknown;
+        question?: unknown;
+        title?: unknown;
+      };
+      const keys = [
+        `Question ${index + 1}`,
+        typeof question.header === "string" ? question.header : null,
+        typeof question.question === "string" ? question.question : null,
+        typeof question.title === "string" ? question.title : null,
+      ].filter((key): key is string => Boolean(key));
+      const answer = keys
+        .map((key) => input.answers[key])
+        .find((value) => value !== undefined);
+      if (!answer)
+        throw new Error(
+          `OVERMIND_ANSWER_MISSING: answer question ${
+            index + 1
+          } before submitting`
+        );
+      answers[`Question ${index + 1}`] = answer;
+      for (const key of keys) answers[key] = answer;
+    }
+    await this.deps.paseo.agents.ref(peer.id).respondToPermission({
+      requestId: input.requestId,
+      response: {
+        behavior: "allow",
+        updatedInput: { ...(request.input ?? {}), answers },
+      },
+    });
+    this.deps.relay.clearPeerQuestion(peer.id, input.requestId);
+    return { agentId: peer.id, requestId: input.requestId, accepted: true };
+  }
+
+  private dualSeat(
+    lead: Seat,
+    input: z.infer<typeof COORDINATION_TOOLS.dual_seat.schema>
+  ) {
     const workspaceId = lead.workspaceId;
     if (!workspaceId) denied("a dual-seat needs the Lead's workspace");
     const criteria = input.criteria ?? [];
@@ -605,9 +764,17 @@ export class Coordinator {
             .catch(() => undefined);
         throw error;
       }
-      await this.deps.relay.expectPanel(lead.id, input.question, criteria, members);
+      await this.deps.relay.expectPanel(
+        lead.id,
+        input.question,
+        criteria,
+        members
+      );
       return {
-        peers: members.map((member) => ({ side: member.side, agentId: member.id })),
+        peers: members.map((member) => ({
+          side: member.side,
+          agentId: member.id,
+        })),
         next: "End your turn now and wait idle. Overmind sends both results together in one report once every direction has reported; do not poll the Peers, sleep, or loop.",
       };
     });
@@ -617,8 +784,11 @@ export class Coordinator {
     const page = await this.deps.paseo.agents.list();
     const taken = new Set(
       page.entries.map(
-        (entry) => entry.agent.labels?.[NAME_LABEL] ?? entry.agent.title?.split(" - ")[0] ?? "",
-      ),
+        (entry) =>
+          entry.agent.labels?.[NAME_LABEL] ??
+          entry.agent.title?.split(" - ")[0] ??
+          ""
+      )
     );
     return pickName(taken);
   }
@@ -628,25 +798,32 @@ export class Coordinator {
     if (this.deps.relay.isAsking(target.id)) return;
     if (this.deps.relay.awaitsReport(target.id, caller.id))
       throw new Error(
-        `OVERMIND_AWAIT_REPORT: ${target.id} is still working on what you sent it. ${AWAIT_REPORT}`,
+        `OVERMIND_AWAIT_REPORT: ${target.id} is still working on what you sent it. ${AWAIT_REPORT}`
       );
   }
 
   private async sendPrompt(
     caller: Seat,
-    input: z.infer<typeof COORDINATION_TOOLS.send_agent_prompt.schema>,
+    input: z.infer<typeof COORDINATION_TOOLS.send_agent_prompt.schema>
   ) {
     const target = await this.seat(input.agentId);
     assertTarget(caller, "send_agent_prompt", target);
     const lead = target.role === "lead" ? target : caller;
     return this.exclusive(lead.id, async () => {
       assertScopeDispatch(lead);
-      if (target.role === "peer" && (await assertPeerTask(target.labels, lead, input.prompt)))
-        await this.deps.seats.merge(target.id, { "overmind.task.kind": "test-generation" });
+      if (
+        target.role === "peer" &&
+        (await assertPeerTask(target.labels, lead, input.prompt))
+      )
+        await this.deps.seats.merge(target.id, {
+          "overmind.task.kind": "test-generation",
+        });
       const stalled = escalatedAntiPatterns(target.labels);
       if (stalled.length && !input.newApproach)
         throw new Error(
-          `OVERMIND_REDIRECT_REQUIRED: ${target.id} repeated ${stalled.join(", ")} without progress; resend with newApproach describing a different direction`,
+          `OVERMIND_REDIRECT_REQUIRED: ${target.id} repeated ${stalled.join(
+            ", "
+          )} without progress; resend with newApproach describing a different direction`
         );
       const text = input.newApproach
         ? `${input.prompt}\n\nNew approach (replaces the one that kept failing): ${input.newApproach}`
@@ -656,7 +833,8 @@ export class Coordinator {
         activeTurnBehavior: input.activeTurnBehavior ?? "steer",
       });
       if (input.newApproach) await this.deps.repetition.redirect(target.id);
-      if (caller.role === "supervisor") await this.deps.relay.answered(target.id);
+      if (caller.role === "supervisor")
+        await this.deps.relay.answered(target.id);
       // Paseo cannot retitle an agent after creation; the Lead's workspace carries the current work.
       const name = target.labels[NAME_LABEL];
       if (input.task && name && target.role === "lead" && target.workspaceId)
@@ -673,7 +851,11 @@ export class Coordinator {
       const target = await this.seat(input.agentId);
       assertReviewTarget(supervisor, target);
       // shortcut: reads the last 200 items; a longer brainstorm needs paging here.
-      const timeline = await recentTimeline(this.deps.paseo, supervisor.id, 200);
+      const timeline = await recentTimeline(
+        this.deps.paseo,
+        supervisor.id,
+        200
+      );
       if (input.action === "context")
         return {
           humanMessages: humanReviewContext(timeline).messages,
@@ -682,15 +864,22 @@ export class Coordinator {
           status: target.labels["overmind.task.status"] ?? null,
         };
       if (input.action === "agreement") {
-        const agreement = createTaskAgreement(supervisor, target, input, timeline);
-        const resumed = target.labels["overmind.review.decision"] === "needs_human";
+        const agreement = createTaskAgreement(
+          supervisor,
+          target,
+          input,
+          timeline
+        );
+        const resumed =
+          target.labels["overmind.review.decision"] === "needs_human";
         await this.deps.seats.merge(target.id, {
           [TASK_AGREEMENT_LABEL]: JSON.stringify(agreement),
           ...(resumed
             ? {
                 "overmind.review.decision": "",
                 "overmind.task.status":
-                  target.status === "idle" && target.labels["overmind.turn.outcome"] === "completed"
+                  target.status === "idle" &&
+                  target.labels["overmind.turn.outcome"] === "completed"
                     ? "READY_FOR_REVIEW"
                     : "IN_PROGRESS",
               }
@@ -698,18 +887,32 @@ export class Coordinator {
         });
         return { agreement };
       }
-      const labels = supervisorReviewLabels(supervisor, target, input, timeline);
+      const labels = supervisorReviewLabels(
+        supervisor,
+        target,
+        input,
+        timeline
+      );
       assertReviewable(target, labels);
       await this.deps.seats.merge(target.id, labels);
       return { agentId: target.id, labels };
     });
   }
 
-  private contractLock(lead: Seat, input: z.infer<typeof COORDINATION_TOOLS.contract_lock.schema>) {
+  private contractLock(
+    lead: Seat,
+    input: z.infer<typeof COORDINATION_TOOLS.contract_lock.schema>
+  ) {
     return this.exclusive(lead.id, async () => {
       if (input.action === "lock") {
-        const lock = await createContractLock(lead, input.schemaPath, input.apiContractPath);
-        await this.deps.seats.merge(lead.id, { [CONTRACT_LABEL]: JSON.stringify(lock) });
+        const lock = await createContractLock(
+          lead,
+          input.schemaPath,
+          input.apiContractPath
+        );
+        await this.deps.seats.merge(lead.id, {
+          [CONTRACT_LABEL]: JSON.stringify(lock),
+        });
       } else if (input.action === "unlock") {
         await this.deps.seats.merge(lead.id, { [CONTRACT_LABEL]: "" });
       }
